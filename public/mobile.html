@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>BINGO — Player</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="mobile-body">
+  <div class="bg-mesh"></div>
+  <div class="bg-vignette"></div>
+
+  <div class="page">
+    <div class="mobile-wrap card" id="joinCard">
+      <h2>JOIN BINGO</h2>
+      <p class="status" style="margin-top:0">Name, country &amp; photo — same as SpotIt</p>
+
+      <label class="field-label" for="nameInput">Your name</label>
+      <input id="nameInput" placeholder="Enter your name" maxlength="20" autocomplete="name">
+
+      <label class="field-label">Your photo</label>
+      <div class="photo-row">
+        <img id="photoPreview" class="photo-preview hidden" alt="Your photo preview">
+        <label class="photo-upload-btn">
+          <input id="photoInput" type="file" accept="image/*" capture="user" hidden>
+          Take / choose photo
+        </label>
+      </div>
+
+      <label class="field-label" for="countrySearch">Your country</label>
+      <div class="country-picker">
+        <input id="countrySearch" type="search" placeholder="Type country name to search..." autocomplete="off">
+        <ul id="countryResults" class="country-results hidden"></ul>
+        <div id="countryChosen" class="country-chosen hidden" aria-live="polite"></div>
+      </div>
+
+      <button id="joinBtn" disabled>Join as Player</button>
+      <p class="status" id="joinMessage">Scan the QR on the big screen, then fill in your details.</p>
+    </div>
+
+    <div class="mobile-wrap hidden" id="gameCard">
+      <div class="card">
+        <div id="playerHeader" class="player-header"></div>
+        <p class="status" id="mobileStatus">Waiting for host to start…</p>
+        <div id="mobileFirstLevel" class="mobile-first-level hidden" aria-live="polite">
+          <p class="mobile-first-level-eyebrow">1st line champion</p>
+          <img id="mobileFirstLevelPhoto" alt="">
+          <p id="mobileFirstLevelName"></p>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:1rem" id="cardPanel">
+        <div class="bingo-board" id="bingoBoard">
+          <div class="bingo-board-letters" id="bingoBoardLetters"></div>
+          <div class="bingo-grid" id="bingoGrid"></div>
+        </div>
+      </div>
+
+      <div id="mobileChampionCard" class="card mobile-champion-card hidden" aria-hidden="true">
+        <p class="mobile-champion-eyebrow">CHAMPION</p>
+        <div id="mobileChampionHero" class="mobile-champion-hero"></div>
+        <p id="mobileChampionStatus" class="status"></p>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/player-ui.js"></script>
+  <script>
+    const TOKEN_KEY = "bingo_player_token";
+    const socket = io({ transports: ["websocket", "polling"] });
+
+    const joinCard = document.getElementById("joinCard");
+    const gameCard = document.getElementById("gameCard");
+    const nameInput = document.getElementById("nameInput");
+    const photoInput = document.getElementById("photoInput");
+    const photoPreview = document.getElementById("photoPreview");
+    const countrySearch = document.getElementById("countrySearch");
+    const countryResults = document.getElementById("countryResults");
+    const countryChosen = document.getElementById("countryChosen");
+    const joinBtn = document.getElementById("joinBtn");
+    const joinMessage = document.getElementById("joinMessage");
+    const playerHeader = document.getElementById("playerHeader");
+    const mobileStatus = document.getElementById("mobileStatus");
+    const bingoGrid = document.getElementById("bingoGrid");
+    const bingoBoardLetters = document.getElementById("bingoBoardLetters");
+    const cardPanel = document.getElementById("cardPanel");
+    const mobileChampionCard = document.getElementById("mobileChampionCard");
+    const mobileChampionHero = document.getElementById("mobileChampionHero");
+    const mobileChampionStatus = document.getElementById("mobileChampionStatus");
+
+    let joined = false;
+    let myProfile = null;
+    let photoDataUrl = "";
+    let allCountries = [];
+    let selectedCountryCode = "";
+    let myCard = null;
+    let marked = new Set();
+    let calledNumbers = new Set();
+    let currentNumber = null;
+    let cardCols = 9;
+    let rankingUnit = "in row";
+
+    function scoreLabel(score) {
+      return rankingUnit === "cells"
+        ? `${score} cells`
+        : `${score} in row`;
+    }
+
+    function updateJoinButtonState() {
+      joinBtn.disabled = !(nameInput.value.trim() && photoDataUrl && selectedCountryCode);
+    }
+
+    function filterCountries(query) {
+      const q = query.trim().toLowerCase();
+      if (!q) return allCountries.slice(0, 40);
+      return allCountries
+        .filter((c) => c.name.toLowerCase().includes(q))
+        .slice(0, 40);
+    }
+
+    function renderCountryResults(list) {
+      countryResults.innerHTML = "";
+      if (!list.length) {
+        countryResults.classList.add("hidden");
+        return;
+      }
+      list.forEach((country) => {
+        const li = document.createElement("li");
+        li.className = "country-result-item";
+        li.innerHTML = `<img class="country-opt-flag" src="${countryFlagUrl(country.code)}" alt="" width="28" height="21"><span>${escapeHtml(country.name)}</span>`;
+        li.addEventListener("click", () => selectCountry(country));
+        countryResults.appendChild(li);
+      });
+      countryResults.classList.remove("hidden");
+    }
+
+    function selectCountry(country) {
+      selectedCountryCode = country.code;
+      countryChosen.innerHTML = `<img class="country-chosen-flag" src="${countryFlagUrl(country.code)}" alt="" width="36" height="27">`;
+      countryChosen.classList.remove("hidden");
+      countrySearch.value = country.name;
+      countryResults.classList.add("hidden");
+      updateJoinButtonState();
+    }
+
+    function resizePhoto(file) {
+      return new Promise((resolve, reject) => {
+        const img = new Image();
+        const objectUrl = URL.createObjectURL(file);
+        img.onload = () => {
+          const maxSide = 360;
+          const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.max(1, Math.round(img.width * scale));
+          canvas.height = Math.max(1, Math.round(img.height * scale));
+          canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+          URL.revokeObjectURL(objectUrl);
+          resolve(canvas.toDataURL("image/jpeg", 0.82));
+        };
+        img.onerror = () => {
+          URL.revokeObjectURL(objectUrl);
+          reject(new Error("Could not read image."));
+        };
+        img.src = objectUrl;
+      });
+    }
+
+    photoInput.addEventListener("change", async () => {
+      const file = photoInput.files && photoInput.files[0];
+      if (!file) return;
+      try {
+        photoDataUrl = await resizePhoto(file);
+        photoPreview.src = photoDataUrl;
+        photoPreview.classList.remove("hidden");
+        joinMessage.textContent = "Photo ready.";
+      } catch (_e) {
+        photoDataUrl = "";
+        joinMessage.textContent = "Could not use that photo. Try again.";
+      }
+      updateJoinButtonState();
+    });
+
+    nameInput.addEventListener("input", updateJoinButtonState);
+    countrySearch.addEventListener("input", () => {
+      selectedCountryCode = "";
+      countryChosen.classList.add("hidden");
+      renderCountryResults(filterCountries(countrySearch.value));
+      updateJoinButtonState();
+    });
+    countrySearch.addEventListener("focus", () => {
+      renderCountryResults(filterCountries(countrySearch.value));
+    });
+    document.addEventListener("click", (event) => {
+      if (!event.target.closest(".country-picker")) {
+        countryResults.classList.add("hidden");
+      }
+    });
+
+    fetch("/api/countries")
+      .then((r) => r.json())
+      .then((countries) => {
+        allCountries = countries;
+        countrySearch.placeholder = "Type country name to search...";
+        updateJoinButtonState();
+      })
+      .catch(() => {
+        countrySearch.placeholder = "Could not load countries";
+      });
+
+    function showJoinScreen() {
+      joined = false;
+      myProfile = null;
+      myCard = null;
+      marked = new Set();
+      calledNumbers = new Set();
+      currentNumber = null;
+      rankingUnit = "in row";
+      localStorage.removeItem(TOKEN_KEY);
+      showMobileFirstLevel(null);
+      joinCard.classList.remove("hidden");
+      gameCard.classList.add("hidden");
+      mobileChampionCard.classList.add("hidden");
+      nameInput.value = "";
+      photoDataUrl = "";
+      photoPreview.classList.add("hidden");
+      photoInput.value = "";
+      selectedCountryCode = "";
+      countryChosen.classList.add("hidden");
+      countryChosen.innerHTML = "";
+      countrySearch.value = "";
+      joinMessage.textContent = "Scan the QR on the big screen, then fill in your details.";
+      updateJoinButtonState();
+    }
+
+    function renderHeader() {
+      if (!myProfile) return;
+      const score = myProfile.score || 0;
+      playerHeader.innerHTML = `
+        ${renderPlayerProfile(myProfile)}
+        <span class="score-pill">${scoreLabel(score)}</span>
+      `;
+    }
+
+    function renderCard() {
+      if (!myCard) {
+        bingoGrid.innerHTML = "";
+        bingoBoardLetters.innerHTML = "";
+        return;
+      }
+      const rows = myCard.length;
+      const cols = myCard[0]?.length || cardCols;
+      cardCols = cols;
+      bingoGrid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+      bingoBoardLetters.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+      bingoBoardLetters.innerHTML = Array.from({ length: cols }, (_, i) =>
+        `<span class="col-${i}">${i + 1}</span>`
+      ).join("");
+
+      bingoGrid.innerHTML = "";
+      for (let r = 0; r < rows; r += 1) {
+        for (let c = 0; c < cols; c += 1) {
+          const val = myCard[r][c];
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = `bingo-cell col-${c % 10}`;
+
+          if (val == null) {
+            btn.classList.add("empty");
+            btn.textContent = "";
+            btn.disabled = true;
+            bingoGrid.appendChild(btn);
+            continue;
+          }
+
+          btn.textContent = String(val);
+          btn.dataset.number = String(val);
+          const isMarked = marked.has(val);
+          if (isMarked) {
+            btn.classList.add("marked");
+            btn.textContent = "●";
+            btn.setAttribute("aria-label", "Marked");
+            btn.disabled = true;
+          } else {
+            btn.disabled = false;
+            btn.addEventListener("click", () => {
+              primeGameAudio();
+              socket.emit("markNumber", { number: val });
+            });
+          }
+          bingoGrid.appendChild(btn);
+        }
+      }
+    }
+
+    function showMobileChampion(leaderboard) {
+      const champ = leaderboard?.[0];
+      cardPanel.classList.add("hidden");
+      mobileChampionCard.classList.remove("hidden");
+      if (!champ) {
+        mobileChampionHero.innerHTML = "";
+        mobileChampionStatus.textContent = "Game over.";
+        return;
+      }
+      const isMe = myProfile && champ.id === myProfile.id;
+      playChampionSound();
+      mobileChampionHero.innerHTML = `
+        ${champ.photo ? `<img src="${champ.photo}" alt="">` : ""}
+        <p class="champion-name" style="font-size:1.4rem;margin:0.5rem 0 0">${escapeHtml(champ.name)}</p>
+        ${champ.countryCode ? renderCountryFlagImg(champ.countryCode, champ.countryName) : ""}
+      `;
+      mobileChampionStatus.textContent = isMe
+        ? `You are the champion with ${scoreLabel(champ.score)}!`
+        : `${champ.name} wins with ${scoreLabel(champ.score)}. You had ${scoreLabel(myProfile?.score || 0)}.`;
+    }
+
+    joinBtn.addEventListener("click", () => {
+      const name = nameInput.value.trim();
+      if (!name || !photoDataUrl || !selectedCountryCode) {
+        joinMessage.textContent = "Please search and pick your country from the list.";
+        return;
+      }
+      joinBtn.disabled = true;
+      joinMessage.textContent = "Joining…";
+      socket.emit("joinPlayer", {
+        name,
+        photo: photoDataUrl,
+        countryCode: selectedCountryCode
+      });
+    });
+
+    socket.on("connect", () => {
+      const token = localStorage.getItem(TOKEN_KEY);
+      if (token && !joined) {
+        socket.emit("joinPlayer", { playerToken: token });
+      }
+    });
+
+    socket.on("joined", (data) => {
+      joined = true;
+      myProfile = {
+        id: data.id,
+        name: data.name,
+        countryCode: data.countryCode,
+        countryName: data.countryName,
+        photo: data.photo,
+        score: data.score || 0
+      };
+      localStorage.setItem(TOKEN_KEY, data.token);
+      joinCard.classList.add("hidden");
+      gameCard.classList.remove("hidden");
+      mobileChampionCard.classList.add("hidden");
+      cardPanel.classList.remove("hidden");
+      renderHeader();
+      mobileStatus.textContent = "You're in the lobby. Wait for the host to start.";
+    });
+
+    socket.on("joinError", ({ message }) => {
+      joinMessage.textContent = message || "Could not join.";
+      updateJoinButtonState();
+    });
+
+    socket.on("cardDealt", ({ card, marked: markedList, cardCols: cols }) => {
+      myCard = card;
+      marked = new Set(markedList || []);
+      if (cols) cardCols = cols;
+      cardPanel.classList.remove("hidden");
+      mobileChampionCard.classList.add("hidden");
+      renderCard();
+      mobileStatus.textContent = "Your card is ready — watch the big screen and tap matching numbers.";
+    });
+
+    socket.on("numberDrawn", (payload) => {
+      currentNumber = payload.number;
+      calledNumbers = new Set(payload.calledNumbers || []);
+      // Do not re-render or hint which card cell matches — watch the big screen only
+      mobileStatus.textContent = "Number called on the big screen — tap it on your card.";
+    });
+
+    socket.on("markResult", (result) => {
+      if (!result.ok) {
+        mobileStatus.textContent = "Not that one — try again.";
+        return;
+      }
+      marked = new Set(result.marked || []);
+      if (result.rankingUnit) rankingUnit = result.rankingUnit;
+      if (myProfile) myProfile.score = result.score || 0;
+      renderHeader();
+      renderCard();
+      if (!result.already) {
+        mobileStatus.textContent = `Marked! ${scoreLabel(result.score)}`;
+      }
+    });
+
+    function showMobileFirstLevel(player) {
+      const box = document.getElementById("mobileFirstLevel");
+      const img = document.getElementById("mobileFirstLevelPhoto");
+      const name = document.getElementById("mobileFirstLevelName");
+      if (!player) {
+        box.classList.add("hidden");
+        return;
+      }
+      if (player.photo) {
+        img.src = player.photo;
+        img.classList.remove("hidden");
+      } else {
+        img.classList.add("hidden");
+      }
+      name.textContent = player.name || "Player";
+      box.classList.remove("hidden");
+    }
+
+    socket.on("rankingPhase", (payload) => {
+      if (payload?.rankingUnit) rankingUnit = payload.rankingUnit;
+      const champ = payload?.firstLevelChampion || payload?.firstBingoPlayer;
+      if (champ) showMobileFirstLevel(champ);
+      renderHeader();
+      mobileStatus.textContent =
+        "First line champion crowned! Game continues — ranking is by all marked cells.";
+    });
+
+    socket.on("firstLevelChampion", ({ player }) => {
+      if (player) {
+        showMobileFirstLevel(player);
+        playChampionSound();
+      }
+    });
+
+    socket.on("gameState", (state) => {
+      if (state.rankingUnit) rankingUnit = state.rankingUnit;
+      if (state.firstLevelChampion) showMobileFirstLevel(state.firstLevelChampion);
+      else if (!state.firstBingoAchieved) showMobileFirstLevel(null);
+      if (state.calledNumbers) calledNumbers = new Set(state.calledNumbers);
+      if (state.currentNumber) currentNumber = state.currentNumber;
+      if (myProfile && state.leaderboard) {
+        const me = state.leaderboard.find((p) => p.id === myProfile.id);
+        if (me) {
+          myProfile.score = me.score;
+          renderHeader();
+        }
+      }
+      if (state.started && !state.ended && myCard) {
+        renderCard();
+        mobileStatus.textContent = "Watch the big screen — find and tap numbers on your card.";
+      }
+      if (state.ended && state.leaderboard) {
+        showMobileChampion(state.leaderboard);
+      }
+      if (!state.started && !state.ended && joined) {
+        mobileStatus.textContent = "You're in the lobby. Wait for the host to start.";
+      }
+    });
+
+    socket.on("gameOver", ({ leaderboard }) => {
+      showMobileChampion(leaderboard || []);
+    });
+
+    socket.on("sessionReset", () => {
+      showJoinScreen();
+    });
+  </script>
+</body>
+</html>

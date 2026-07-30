@@ -1,0 +1,804 @@
+const path = require("path");
+const fs = require("fs");
+const os = require("os");
+const http = require("http");
+const crypto = require("crypto");
+const express = require("express");
+const compression = require("compression");
+const QRCode = require("qrcode");
+const { Server } = require("socket.io");
+const {
+  PORT,
+  IS_PRODUCTION,
+  PUBLIC_URL,
+  MAX_PLAYERS,
+  MAX_PHOTO_LENGTH,
+  DEFAULT_CARD_ROWS,
+  DEFAULT_CARD_COLS,
+  MIN_CARD_ROWS,
+  MAX_CARD_ROWS,
+  MIN_CARD_COLS,
+  MAX_CARD_COLS
+} = require("./lib/config");
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  maxHttpBufferSize: 1e6,
+  cors: { origin: false }
+});
+
+app.use(compression());
+app.use(express.json({ limit: "300kb" }));
+
+const publicDir = path.join(__dirname, "public");
+app.use(express.static(publicDir));
+
+const flagIconsDir = path.join(__dirname, "node_modules", "flag-icons", "flags", "4x3");
+app.use("/flags", express.static(flagIconsDir));
+
+const countriesPath = path.join(publicDir, "countries.json");
+const countriesRaw = JSON.parse(fs.readFileSync(countriesPath, "utf8"));
+const countriesByCode = new Map();
+const allowedCountryCodes = new Set();
+for (const entry of countriesRaw) {
+  const code = String(entry.code || entry.cca2 || "").toUpperCase();
+  const name = String(entry.name || entry.name?.common || "").trim();
+  if (code.length === 2 && name && code !== "IL") {
+    countriesByCode.set(code, name);
+    allowedCountryCodes.add(code);
+  }
+}
+
+const BINGO_LETTERS = ["B", "I", "N", "G", "O"];
+
+function shuffle(arr) {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+
+function normalizeCardSize(rows, cols) {
+  return {
+    rows: clamp(Number(rows) || DEFAULT_CARD_ROWS, MIN_CARD_ROWS, MAX_CARD_ROWS),
+    cols: clamp(Number(cols) || DEFAULT_CARD_COLS, MIN_CARD_COLS, MAX_CARD_COLS)
+  };
+}
+
+/** Number pool size for a card width (classic 9 → 1–90). */
+function maxNumberForCols(cols) {
+  if (cols === 9) return 90;
+  return cols * 10;
+}
+
+/** Decade ranges per column, classic bingo style. */
+function columnRange(col, cols) {
+  const maxNum = maxNumberForCols(cols);
+  if (cols === 9) {
+    if (col === 0) return [1, 9];
+    if (col === 8) return [80, 90];
+    return [col * 10, col * 10 + 9];
+  }
+  const size = Math.floor(maxNum / cols);
+  const min = col * size + 1;
+  const max = col === cols - 1 ? maxNum : (col + 1) * size;
+  return [min, max];
+}
+
+/**
+ * Classic old bingo ticket: rows × cols with random empty cells.
+ * ~half the cells filled (5 numbers per row on a 9-wide card).
+ */
+function generateBingoCard(rows, cols) {
+  const size = normalizeCardSize(rows, cols);
+  const grid = Array.from({ length: size.rows }, () =>
+    Array.from({ length: size.cols }, () => null)
+  );
+
+  // Classic density: 5 numbers / 4 blanks on 9 cols → scale for other widths.
+  const numbersPerRow = clamp(Math.round(size.cols * (5 / 9)), 3, size.cols - 1);
+  const usedByCol = Array.from({ length: size.cols }, () => new Set());
+
+  for (let r = 0; r < size.rows; r += 1) {
+    const colOrder = shuffle([...Array(size.cols).keys()]);
+    const chosenCols = colOrder.slice(0, numbersPerRow).sort((a, b) => a - b);
+
+    for (const c of chosenCols) {
+      const [min, max] = columnRange(c, size.cols);
+      const pool = [];
+      for (let n = min; n <= max; n += 1) {
+        if (!usedByCol[c].has(n)) pool.push(n);
+      }
+      if (!pool.length) continue;
+      const num = pool[Math.floor(Math.random() * pool.length)];
+      grid[r][c] = num;
+      usedByCol[c].add(num);
+    }
+  }
+
+  return grid;
+}
+
+function letterForNumber(n, cols) {
+  const c = cols || game.cardCols || DEFAULT_CARD_COLS;
+  for (let i = 0; i < c; i += 1) {
+    const [min, max] = columnRange(i, c);
+    if (n >= min && n <= max) {
+      if (c === 5) return BINGO_LETTERS[i] || String(i + 1);
+      return String(i + 1);
+    }
+  }
+  return "·";
+}
+
+function countCompletedRows(card, marked) {
+  let completed = 0;
+  for (const row of card) {
+    const numbers = row.filter((v) => v != null);
+    if (!numbers.length) continue;
+    if (numbers.every((n) => marked.has(n))) completed += 1;
+  }
+  return completed;
+}
+
+/** Most marked numbers in any single row (race to first line). */
+function bestRowMarkedCount(card, marked) {
+  let best = 0;
+  for (const row of card) {
+    const numbers = row.filter((v) => v != null);
+    if (!numbers.length) continue;
+    const filled = numbers.filter((n) => marked.has(n)).length;
+    if (filled > best) best = filled;
+  }
+  return best;
+}
+
+/** Total marked numbers on the whole card. */
+function totalMarkedOnCard(card, marked) {
+  let total = 0;
+  for (const row of card) {
+    for (const value of row) {
+      if (value != null && marked.has(value)) total += 1;
+    }
+  }
+  return total;
+}
+
+function computePlayerScore(player) {
+  if (!player?.card) return 0;
+  if (game.firstBingoAchieved) {
+    return totalMarkedOnCard(player.card, player.marked);
+  }
+  return bestRowMarkedCount(player.card, player.marked);
+}
+
+function refreshAllPlayerScores() {
+  for (const player of players.values()) {
+    player.completedRows = player.card
+      ? countCompletedRows(player.card, player.marked)
+      : 0;
+    player.score = computePlayerScore(player);
+  }
+}
+
+function rankingUnit() {
+  return game.firstBingoAchieved ? "cells" : "in row";
+}
+
+function createNewGame(settings = {}) {
+  const size = normalizeCardSize(
+    settings.cardRows ?? DEFAULT_CARD_ROWS,
+    settings.cardCols ?? DEFAULT_CARD_COLS
+  );
+  const maxNum = maxNumberForCols(size.cols);
+  const winRows = clamp(
+    Number(settings.winRows) || size.rows,
+    1,
+    size.rows
+  );
+
+  return {
+    started: false,
+    ended: false,
+    cardRows: size.rows,
+    cardCols: size.cols,
+    maxNumber: maxNum,
+    winRows,
+    firstBingoAchieved: false,
+    firstBingoPlayerId: null,
+    calledNumbers: [],
+    remainingNumbers: shuffle(Array.from({ length: maxNum }, (_, i) => i + 1)),
+    currentNumber: null,
+    currentLetter: null,
+    drawSequence: 0,
+    autoDraw: false,
+    autoDrawMs: 12000,
+    autoDrawTimer: null
+  };
+}
+
+const players = new Map();
+const socketToPlayerId = new Map();
+let game = createNewGame();
+
+function getPublicBaseUrl(req) {
+  if (PUBLIC_URL) return PUBLIC_URL;
+  const host = req.get("host") || `localhost:${PORT}`;
+  const proto = req.get("x-forwarded-proto") || req.protocol || "http";
+  return `${proto}://${host}`.replace(/\/$/, "");
+}
+
+function getLanAddresses() {
+  const nets = os.networkInterfaces();
+  const result = [];
+  for (const list of Object.values(nets)) {
+    for (const net of list || []) {
+      if (net.family === "IPv4" && !net.internal) result.push(net.address);
+    }
+  }
+  return result;
+}
+
+function normalizePhoto(photo) {
+  const value = String(photo || "");
+  if (!/^data:image\/(jpeg|jpg|png|webp);base64,/i.test(value)) return null;
+  if (value.length > MAX_PHOTO_LENGTH) return null;
+  return value;
+}
+
+function findPlayerByToken(token) {
+  if (!token) return null;
+  for (const player of players.values()) {
+    if (player.token === token) return player;
+  }
+  return null;
+}
+
+function bindSocketToPlayer(socket, player) {
+  if (player.socketId && player.socketId !== socket.id) {
+    socketToPlayerId.delete(player.socketId);
+  }
+  player.socketId = socket.id;
+  socketToPlayerId.set(socket.id, player.id);
+  socket.data.playerId = player.id;
+}
+
+function toLeaderboardEntry(player, { includePhoto = false } = {}) {
+  const entry = {
+    id: player.id,
+    name: player.name,
+    score: player.score,
+    completedRows: player.completedRows || 0,
+    countryCode: player.countryCode,
+    countryName: player.countryName,
+    markedCount: player.marked ? player.marked.size : 0
+  };
+  if (includePhoto) entry.photo = player.photo;
+  return entry;
+}
+
+function getLeaderboard({ includePhoto = false } = {}) {
+  return [...players.values()]
+    .map((p) => toLeaderboardEntry(p, { includePhoto }))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if ((b.completedRows || 0) !== (a.completedRows || 0)) {
+        return (b.completedRows || 0) - (a.completedRows || 0);
+      }
+      if (b.markedCount !== a.markedCount) return b.markedCount - a.markedCount;
+      return a.name.localeCompare(b.name);
+    });
+}
+
+function buildGameStatePayload() {
+  const registrationOpen = !game.started || game.ended;
+  return {
+    started: game.started,
+    ended: game.ended,
+    cardRows: game.cardRows,
+    cardCols: game.cardCols,
+    maxNumber: game.maxNumber,
+    calledNumbers: game.calledNumbers,
+    currentNumber: game.currentNumber,
+    currentLetter: game.currentLetter,
+    drawSequence: game.drawSequence,
+    remainingCount: game.remainingNumbers.length,
+    autoDraw: game.autoDraw,
+    autoDrawMs: game.autoDrawMs,
+    winRows: game.winRows,
+    firstBingoAchieved: !!game.firstBingoAchieved,
+    rankingPhase: game.firstBingoAchieved ? "grid" : "row",
+    rankingUnit: rankingUnit(),
+    firstLevelChampion: (() => {
+      if (!game.firstBingoPlayerId) return null;
+      const champ = players.get(game.firstBingoPlayerId);
+      return champ ? toLeaderboardEntry(champ, { includePhoto: true }) : null;
+    })(),
+    playerCount: players.size,
+    registrationOpen,
+    playerCap: MAX_PLAYERS,
+    settings: {
+      cardRows: game.cardRows,
+      cardCols: game.cardCols,
+      winRows: game.winRows,
+      minRows: MIN_CARD_ROWS,
+      maxRows: MAX_CARD_ROWS,
+      minCols: MIN_CARD_COLS,
+      maxCols: MAX_CARD_COLS,
+      defaultRows: DEFAULT_CARD_ROWS,
+      defaultCols: DEFAULT_CARD_COLS
+    },
+    leaderboard: getLeaderboard({ includePhoto: game.ended })
+  };
+}
+
+function emitGameState() {
+  io.emit("gameState", buildGameStatePayload());
+}
+
+function emitPlayerJoined(player) {
+  io.emit("playerJoined", toLeaderboardEntry(player, { includePhoto: true }));
+}
+
+function clearAutoDraw() {
+  if (game.autoDrawTimer) {
+    clearTimeout(game.autoDrawTimer);
+    game.autoDrawTimer = null;
+  }
+}
+
+function scheduleAutoDraw() {
+  clearAutoDraw();
+  if (!game.autoDraw || !game.started || game.ended) return;
+  game.autoDrawTimer = setTimeout(() => {
+    drawNextNumber();
+  }, game.autoDrawMs);
+}
+
+function finishGame(reason) {
+  if (game.ended) return;
+  game.ended = true;
+  game.autoDraw = false;
+  clearAutoDraw();
+  const leaderboard = getLeaderboard({ includePhoto: true });
+  io.emit("gameOver", { leaderboard, reason: reason || "ended" });
+  emitGameState();
+}
+
+function drawNextNumber() {
+  if (!game.started || game.ended) return null;
+  if (!game.remainingNumbers.length) {
+    finishGame("all_numbers");
+    return null;
+  }
+
+  const number = game.remainingNumbers.shift();
+  const letter = letterForNumber(number, game.cardCols);
+  game.currentNumber = number;
+  game.currentLetter = letter;
+  game.calledNumbers.push(number);
+  game.drawSequence += 1;
+
+  io.emit("numberDrawn", {
+    number,
+    letter,
+    drawSequence: game.drawSequence,
+    calledNumbers: game.calledNumbers,
+    remainingCount: game.remainingNumbers.length
+  });
+  emitGameState();
+  scheduleAutoDraw();
+  return number;
+}
+
+function resetLobby() {
+  clearAutoDraw();
+  for (const player of players.values()) {
+    if (player.socketId) {
+      const sock = io.sockets.sockets.get(player.socketId);
+      if (sock) sock.emit("sessionReset");
+    }
+  }
+  players.clear();
+  socketToPlayerId.clear();
+  game = createNewGame();
+  io.emit("lobbyCleared");
+  emitGameState();
+}
+
+function startGame({ autoDraw = false, autoDrawMs, cardRows, cardCols, winRows } = {}) {
+  clearAutoDraw();
+  game = createNewGame({ cardRows, cardCols, winRows });
+  game.started = true;
+  if (autoDrawMs) game.autoDrawMs = Math.max(10000, Number(autoDrawMs) || 10000);
+  game.autoDraw = !!autoDraw;
+
+  for (const player of players.values()) {
+    player.card = generateBingoCard(game.cardRows, game.cardCols);
+    player.marked = new Set();
+    player.completedRows = 0;
+    player.score = 0;
+  }
+
+  emitGameState();
+
+  for (const player of players.values()) {
+    if (!player.socketId) continue;
+    const sock = io.sockets.sockets.get(player.socketId);
+    if (sock) {
+      sock.emit("cardDealt", {
+        card: player.card,
+        marked: [...player.marked],
+        cardRows: game.cardRows,
+        cardCols: game.cardCols
+      });
+    }
+  }
+
+  // First number after a short beat so phones can show cards.
+  setTimeout(() => drawNextNumber(), 1800);
+}
+
+app.get("/", (_req, res) => {
+  res.sendFile(path.join(publicDir, "host.html"));
+});
+
+app.get("/mobile", (_req, res) => {
+  res.sendFile(path.join(publicDir, "mobile.html"));
+});
+
+app.get("/api/countries", (_req, res) => {
+  const countries = [...countriesByCode.entries()]
+    .map(([code, name]) => ({ code, name }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  res.json(countries);
+});
+
+app.get("/api/join-info", (req, res) => {
+  const base = getPublicBaseUrl(req);
+  const localPlayerUrl = `${base}/mobile`;
+  const lanAddresses = getLanAddresses();
+  const lanUrls = lanAddresses.map((address) => `http://${address}:${PORT}/mobile`);
+
+  // Phones cannot open localhost — prefer a LAN IP for the QR code.
+  const primaryPlayerUrl =
+    PUBLIC_URL
+      ? `${PUBLIC_URL}/mobile`
+      : lanUrls[0] || localPlayerUrl;
+
+  const playerUrls = PUBLIC_URL
+    ? [primaryPlayerUrl, ...lanUrls.filter((u) => u !== primaryPlayerUrl)]
+    : [...lanUrls, localPlayerUrl].filter((url, i, arr) => arr.indexOf(url) === i);
+
+  res.json({
+    port: PORT,
+    playerUrls,
+    primaryPlayerUrl,
+    lanUrls,
+    hostUrl: `${base}/`,
+    isProduction: IS_PRODUCTION
+  });
+});
+
+app.get("/api/qr", async (req, res, next) => {
+  try {
+    const text = String(req.query.url || "");
+    if (!/^https?:\/\//i.test(text)) {
+      res.status(400).send("Invalid url");
+      return;
+    }
+    const png = await QRCode.toBuffer(text, {
+      errorCorrectionLevel: "M",
+      margin: 2,
+      width: 320
+    });
+    res.type("image/png");
+    res.set("Cache-Control", "no-store");
+    res.send(png);
+  } catch (error) {
+    next(error);
+  }
+});
+
+io.on("connection", (socket) => {
+  socket.emit("gameState", buildGameStatePayload());
+  const lobbyPlayers = [...players.values()].map((player) =>
+    toLeaderboardEntry(player, { includePhoto: true })
+  );
+  if (lobbyPlayers.length) {
+    socket.emit("lobbySnapshot", { players: lobbyPlayers });
+  }
+
+  const existingId = socketToPlayerId.get(socket.id);
+  if (existingId) {
+    const player = players.get(existingId);
+    if (player?.card) {
+      socket.emit("cardDealt", {
+        card: player.card,
+        marked: [...player.marked],
+        cardRows: game.cardRows,
+        cardCols: game.cardCols
+      });
+    }
+  }
+
+  socket.on("joinPlayer", (payload) => {
+    const playerToken = String(payload?.playerToken || "").trim();
+    const rawName = String(payload?.name || "").trim();
+    const existing = findPlayerByToken(playerToken);
+    const registrationOpen = !game.started || game.ended;
+
+    if (!registrationOpen && !existing) {
+      socket.emit("joinError", {
+        message: "Game in progress — registration is closed. Wait for the next game."
+      });
+      return;
+    }
+
+    if (playerToken && !existing && !rawName) {
+      socket.emit("joinError", { message: "Session expired. Please register again." });
+      return;
+    }
+
+    if (existing) {
+      if (existing.socketId) {
+        const oldSocket = io.sockets.sockets.get(existing.socketId);
+        if (oldSocket && oldSocket.id !== socket.id) {
+          oldSocket.disconnect(true);
+        }
+      }
+      bindSocketToPlayer(socket, existing);
+      socket.emit("joined", {
+        id: existing.id,
+        token: existing.token,
+        name: existing.name,
+        countryCode: existing.countryCode,
+        countryName: existing.countryName,
+        photo: existing.photo,
+        score: existing.score
+      });
+      if (game.started && existing.card) {
+        socket.emit("cardDealt", {
+          card: existing.card,
+          marked: [...existing.marked],
+          cardRows: game.cardRows,
+          cardCols: game.cardCols
+        });
+      }
+      emitGameState();
+      return;
+    }
+
+    if (players.size >= MAX_PLAYERS) {
+      socket.emit("joinError", {
+        message: `Game is full (${MAX_PLAYERS} players max).`
+      });
+      return;
+    }
+
+    const name = rawName.slice(0, 20);
+    const countryCode = String(payload?.countryCode || "").toUpperCase();
+    const photo = normalizePhoto(payload?.photo);
+
+    if (!name) {
+      socket.emit("joinError", { message: "Name is required." });
+      return;
+    }
+    if (!countryCode || !allowedCountryCodes.has(countryCode)) {
+      socket.emit("joinError", { message: "Please choose a valid country." });
+      return;
+    }
+    if (!photo) {
+      socket.emit("joinError", { message: "Please take or upload a photo." });
+      return;
+    }
+
+    const countryName = countriesByCode.get(countryCode);
+    const player = {
+      id: crypto.randomUUID(),
+      token: crypto.randomUUID(),
+      socketId: null,
+      name,
+      score: 0,
+      photo,
+      countryCode,
+      countryName,
+      card: null,
+      marked: new Set()
+    };
+    players.set(player.id, player);
+    bindSocketToPlayer(socket, player);
+    socket.emit("joined", {
+      id: player.id,
+      token: player.token,
+      name,
+      countryCode,
+      countryName,
+      photo,
+      score: 0
+    });
+    emitPlayerJoined(player);
+    emitGameState();
+  });
+
+  socket.on("markNumber", (payload) => {
+    const playerId = socketToPlayerId.get(socket.id);
+    const player = playerId ? players.get(playerId) : null;
+    if (!player || !game.started || game.ended) {
+      socket.emit("markResult", { ok: false, message: "Cannot mark now." });
+      return;
+    }
+
+    const number = Number(payload?.number);
+    if (!Number.isInteger(number) || number < 1 || number > game.maxNumber) {
+      socket.emit("markResult", { ok: false, message: "Invalid number." });
+      return;
+    }
+
+    if (!game.calledNumbers.includes(number)) {
+      socket.emit("markResult", { ok: false, message: "Not that one — try again." });
+      return;
+    }
+
+    if (!player.card) {
+      socket.emit("markResult", { ok: false, message: "No card yet." });
+      return;
+    }
+
+    const onCard = player.card.some((row) => row.includes(number));
+    if (!onCard) {
+      socket.emit("markResult", { ok: false, message: "Not that one — try again." });
+      return;
+    }
+
+    if (player.marked.has(number)) {
+      socket.emit("markResult", { ok: true, already: true, score: player.score, marked: [...player.marked] });
+      return;
+    }
+
+    player.marked.add(number);
+    player.completedRows = countCompletedRows(player.card, player.marked);
+
+    let phaseChanged = false;
+    if (!game.firstBingoAchieved && player.completedRows >= 1) {
+      game.firstBingoAchieved = true;
+      game.firstBingoPlayerId = player.id;
+      phaseChanged = true;
+      refreshAllPlayerScores();
+      const champEntry = toLeaderboardEntry(player, { includePhoto: true });
+      io.emit("rankingPhase", {
+        phase: "grid",
+        rankingUnit: rankingUnit(),
+        firstBingoPlayer: champEntry,
+        firstLevelChampion: champEntry
+      });
+      io.emit("firstLevelChampion", { player: champEntry });
+    } else {
+      player.score = computePlayerScore(player);
+    }
+
+    socket.emit("markResult", {
+      ok: true,
+      number,
+      score: player.score,
+      completedRows: player.completedRows,
+      rankingPhase: game.firstBingoAchieved ? "grid" : "row",
+      rankingUnit: rankingUnit(),
+      marked: [...player.marked]
+    });
+
+    io.emit("playerMarked", {
+      number,
+      player: toLeaderboardEntry(player, { includePhoto: true }),
+      drawSequence: game.drawSequence,
+      rankingPhase: game.firstBingoAchieved ? "grid" : "row",
+      rankingUnit: rankingUnit(),
+      phaseChanged
+    });
+
+    emitGameState();
+
+    // First line crowns "first level" only — final champion needs winRows after that (or host end)
+    if (!phaseChanged && player.completedRows >= game.winRows) {
+      finishGame("champion");
+    }
+  });
+
+  socket.on("hostStartGame", (payload) => {
+    if (players.size < 1) {
+      socket.emit("hostError", { message: "Need at least one player to start." });
+      return;
+    }
+    if (game.started && !game.ended) {
+      socket.emit("hostError", { message: "Game already in progress." });
+      return;
+    }
+    startGame({
+      autoDraw: !!payload?.autoDraw,
+      autoDrawMs: payload?.autoDrawMs,
+      cardRows: payload?.cardRows,
+      cardCols: payload?.cardCols,
+      winRows: payload?.winRows
+    });
+  });
+
+  socket.on("hostUpdateSettings", (payload) => {
+    if (game.started && !game.ended) {
+      socket.emit("hostError", { message: "Settings are locked while a game is running." });
+      return;
+    }
+    const size = normalizeCardSize(payload?.cardRows, payload?.cardCols);
+    const winRows = clamp(Number(payload?.winRows) || size.rows, 1, size.rows);
+    if (!game.started || game.ended) {
+      game.cardRows = size.rows;
+      game.cardCols = size.cols;
+      game.maxNumber = maxNumberForCols(size.cols);
+      game.winRows = winRows;
+      game.remainingNumbers = shuffle(
+        Array.from({ length: game.maxNumber }, (_, i) => i + 1)
+      );
+      emitGameState();
+    }
+  });
+
+  socket.on("hostDrawNumber", () => {
+    if (!game.started || game.ended) {
+      socket.emit("hostError", { message: "Start the game first." });
+      return;
+    }
+    drawNextNumber();
+  });
+
+  socket.on("hostToggleAutoDraw", (payload) => {
+    if (!game.started || game.ended) return;
+    game.autoDraw = !!payload?.autoDraw;
+    if (payload?.autoDrawMs) {
+      game.autoDrawMs = Math.max(10000, Number(payload.autoDrawMs) || game.autoDrawMs);
+    }
+    if (game.autoDraw) scheduleAutoDraw();
+    else clearAutoDraw();
+    emitGameState();
+  });
+
+  socket.on("hostEndGame", () => {
+    if (!game.started || game.ended) return;
+    finishGame("host");
+  });
+
+  socket.on("hostResetGame", () => {
+    resetLobby();
+  });
+
+  socket.on("disconnect", () => {
+    const playerId = socketToPlayerId.get(socket.id);
+    socketToPlayerId.delete(socket.id);
+    if (!playerId) return;
+    const player = players.get(playerId);
+    if (!player) return;
+    if (player.socketId === socket.id) player.socketId = null;
+
+    // Drop from lobby only before the game starts.
+    if (!game.started || game.ended) {
+      players.delete(playerId);
+      io.emit("playerLeft", { id: playerId });
+      emitGameState();
+    }
+  });
+});
+
+server.listen(PORT, "0.0.0.0", () => {
+  const lan = getLanAddresses()[0];
+  console.log(`Bingo host screen: http://localhost:${PORT}/`);
+  console.log(
+    lan
+      ? `Bingo phone join (QR): http://${lan}:${PORT}/mobile`
+      : `Bingo mobile join: http://localhost:${PORT}/mobile`
+  );
+});

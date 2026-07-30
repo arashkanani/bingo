@@ -1,0 +1,913 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BINGO — Host Screen</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <div class="bg-mesh"></div>
+  <div class="bg-sparkle" aria-hidden="true"></div>
+  <div class="bg-vignette"></div>
+
+  <div class="page">
+    <header class="host-header">
+      <div>
+        <h1 class="brand">BINGO</h1>
+        <p class="brand-sub" id="headerSub">1. Scan QR → 2. Register → 3. Start</p>
+      </div>
+      <div class="host-actions" id="lobbyActions">
+        <label class="draw-mode-field">
+          <span>Number draw</span>
+          <select id="drawModeSelect">
+            <option value="manual" selected>Manual</option>
+            <option value="10">Every 10 seconds</option>
+            <option value="15">Every 15 seconds</option>
+            <option value="20">Every 20 seconds</option>
+          </select>
+        </label>
+        <button id="startBtn" disabled>Start game</button>
+      </div>
+      <div class="host-actions hidden" id="gameActions">
+        <label class="draw-mode-field">
+          <span>Number draw</span>
+          <select id="drawModeSelectGame">
+            <option value="manual">Manual</option>
+            <option value="10">Every 10 seconds</option>
+            <option value="15">Every 15 seconds</option>
+            <option value="20">Every 20 seconds</option>
+          </select>
+        </label>
+        <label class="draw-mode-field">
+          <span>Wheel sound</span>
+          <select id="wheelSoundSelectGame">
+            <option value="classic">Classic</option>
+            <option value="casino">Casino</option>
+            <option value="soft">Soft</option>
+            <option value="dramatic">Dramatic</option>
+            <option value="off">Off</option>
+          </select>
+        </label>
+        <button id="drawBtn">Draw number</button>
+        <button id="endBtn" class="danger">End &amp; crown</button>
+      </div>
+      <div class="host-actions hidden" id="endedActions">
+        <button id="resetBtn">Next game — show QR</button>
+      </div>
+    </header>
+
+    <section id="lobbyView">
+      <ol class="lobby-steps" aria-label="How to begin">
+        <li class="active"><span>1</span> Scan QR code</li>
+        <li><span>2</span> Players register</li>
+        <li><span>3</span> Host starts game</li>
+      </ol>
+      <div class="lobby-grid lobby-grid-qr-first">
+        <div class="card qr-panel">
+          <h3>Scan to join</h3>
+          <img id="qrImage" alt="QR code to join Bingo">
+          <p class="join-url" id="playerJoinUrl">Loading join link…</p>
+          <p class="status" id="lobbyStatus">Waiting for the first player to register…</p>
+        </div>
+        <div class="card lobby-players">
+          <h3>Registered players <span id="playerCountBadge">(0)</span></h3>
+          <p class="status" style="margin:0 0 0.75rem">Start unlocks after someone joins</p>
+          <div class="lobby-player-list" id="lobbyPlayerList"></div>
+        </div>
+      </div>
+      <div class="card settings-panel" id="settingsPanel">
+        <h3>Card settings</h3>
+        <p class="status" style="margin:0 0 0.85rem">Classic old bingo: empty cells at random. Default 4×10 (columns 4–10).</p>
+        <div class="settings-grid">
+          <label class="setting-field">
+            <span>Rows</span>
+            <input type="number" id="cardRowsInput" min="3" max="6" value="4">
+          </label>
+          <label class="setting-field">
+            <span>Columns</span>
+            <input type="number" id="cardColsInput" min="4" max="10" value="10">
+          </label>
+          <label class="setting-field">
+            <span>Rows to win</span>
+            <input type="number" id="winRowsInput" min="1" max="6" value="4">
+          </label>
+          <label class="setting-field">
+            <span>Wheel sound</span>
+            <select id="wheelSoundSelect">
+              <option value="classic">Classic ticks</option>
+              <option value="casino">Casino wheel</option>
+              <option value="soft">Soft chimes</option>
+              <option value="dramatic">Dramatic</option>
+              <option value="off">Off</option>
+            </select>
+          </label>
+        </div>
+        <p class="status" id="settingsHint">Each row gets numbers + blank cells (classic ticket style).</p>
+      </div>
+    </section>
+
+    <section id="gameView" class="hidden">
+      <div class="game-layout">
+        <div class="card draw-stage">
+          <div class="bingo-letters hidden" id="bingoLetters"></div>
+          <div class="prize-wheel-stage" id="prizeWheelStage">
+            <div class="wheel-glow" aria-hidden="true"></div>
+            <div class="wheel-pointer" aria-hidden="true"></div>
+            <div class="wheel-rim">
+              <div class="wheel-bulbs" id="wheelBulbs" aria-hidden="true"></div>
+              <div class="wheel-disk" id="wheelDisk"></div>
+              <div class="wheel-hub" id="calledBall">
+                <span class="hub-label" id="ballLetter">READY</span>
+                <span class="hub-number" id="ballNumber">?</span>
+              </div>
+            </div>
+            <p class="wheel-caption" id="wheelCaption">Prize wheel ready</p>
+          </div>
+          <div class="markers-hero hidden" id="markersHero" aria-hidden="true">
+            <p class="markers-hero-eyebrow">Got it!</p>
+            <p class="markers-hero-number" id="markersHeroNumber"></p>
+            <div class="markers-hero-grid" id="markersHeroGrid"></div>
+            <p class="markers-hero-empty status" id="markersHeroEmpty">Waiting for players…</p>
+          </div>
+          <div class="called-strip" id="calledStrip"></div>
+          <div class="markers-panel hidden" id="markersPanel">
+            <h3>Marked this number</h3>
+            <div class="markers-rail" id="markersRail"></div>
+          </div>
+        </div>
+        <aside class="card side-panel">
+          <h3>Live ranking</h3>
+          <p class="status" style="margin:0 0 0.75rem" id="rankingHint">By cells filled in best row</p>
+          <div id="firstLevelChamp" class="first-level-champ hidden" aria-live="polite">
+            <p class="first-level-eyebrow">1st line champion</p>
+            <img id="firstLevelPhoto" class="first-level-photo" alt="">
+            <div id="firstLevelFlag"></div>
+            <p id="firstLevelName" class="first-level-name">—</p>
+          </div>
+          <div class="ranking-list" id="rankingList"></div>
+        </aside>
+      </div>
+    </section>
+  </div>
+
+  <div id="championOverlay" class="champion-overlay hidden" aria-hidden="true">
+    <div class="card champion-card">
+      <div class="champion-hero">
+        <p class="champion-eyebrow">CHAMPION</p>
+        <div class="champion-photo-wrap">
+          <img id="championPhoto" alt="Champion">
+        </div>
+        <div id="championFlag"></div>
+        <h2 class="champion-name" id="championName">—</h2>
+        <p class="champion-score" id="championScore"></p>
+      </div>
+      <div>
+        <h3 style="margin:0 0 0.75rem;color:var(--gold)">Final ranking</h3>
+        <div id="championRankingList"></div>
+        <button id="championResetBtn" style="margin-top:1rem;width:100%">Next game — show QR</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/player-ui.js"></script>
+  <script>
+    const socket = io();
+    const playerPhotos = new Map();
+    let latestLeaderboard = [];
+    let lastDrawSequence = 0;
+    let spinTimer = null;
+    let bootstrapped = false;
+    let maxNumber = 90;
+    let wheelBusy = false;
+    let lastRevealedSequence = 0;
+    const SPIN_MS = 4800;
+    const HUB_HOLD_MS = 1400;
+    const MARKERS_SHOW_MS = 6500;
+    let markersTimer = null;
+    let hubHoldTimer = null;
+    let currentRevealNumber = null;
+    const markedThisCall = new Set();
+
+    const lobbyView = document.getElementById("lobbyView");
+    const gameView = document.getElementById("gameView");
+    const lobbyActions = document.getElementById("lobbyActions");
+    const gameActions = document.getElementById("gameActions");
+    const endedActions = document.getElementById("endedActions");
+    const startBtn = document.getElementById("startBtn");
+    const drawBtn = document.getElementById("drawBtn");
+    const endBtn = document.getElementById("endBtn");
+    const resetBtn = document.getElementById("resetBtn");
+    const championResetBtn = document.getElementById("championResetBtn");
+    const drawModeSelect = document.getElementById("drawModeSelect");
+    const drawModeSelectGame = document.getElementById("drawModeSelectGame");
+    const wheelSoundSelect = document.getElementById("wheelSoundSelect");
+    const wheelSoundSelectGame = document.getElementById("wheelSoundSelectGame");
+    const cardRowsInput = document.getElementById("cardRowsInput");
+    const cardColsInput = document.getElementById("cardColsInput");
+    const winRowsInput = document.getElementById("winRowsInput");
+    const settingsHint = document.getElementById("settingsHint");
+    const qrImage = document.getElementById("qrImage");
+    const playerJoinUrl = document.getElementById("playerJoinUrl");
+    const lobbyPlayerList = document.getElementById("lobbyPlayerList");
+    const playerCountBadge = document.getElementById("playerCountBadge");
+    const lobbyStatus = document.getElementById("lobbyStatus");
+    const rankingList = document.getElementById("rankingList");
+    const calledBall = document.getElementById("calledBall");
+    const ballLetter = document.getElementById("ballLetter");
+    const ballNumber = document.getElementById("ballNumber");
+    const prizeWheelStage = document.getElementById("prizeWheelStage");
+    const wheelDisk = document.getElementById("wheelDisk");
+    const wheelBulbs = document.getElementById("wheelBulbs");
+    const wheelCaption = document.getElementById("wheelCaption");
+    const markersHero = document.getElementById("markersHero");
+    const markersHeroGrid = document.getElementById("markersHeroGrid");
+    const markersHeroNumber = document.getElementById("markersHeroNumber");
+    const markersHeroEmpty = document.getElementById("markersHeroEmpty");
+    const calledStrip = document.getElementById("calledStrip");
+    const markersRail = document.getElementById("markersRail");
+    const bingoLetters = document.getElementById("bingoLetters");
+    const championOverlay = document.getElementById("championOverlay");
+    const headerSub = document.getElementById("headerSub");
+
+    const WHEEL_COLORS = [
+      "#ff6b6b", "#ffa94d", "#ffe066", "#69db7c", "#38d9a9",
+      "#4dabf7", "#748ffc", "#b197fc", "#f783ac", "#e599f7",
+      "#ff8787", "#ffd43b"
+    ];
+    const WHEEL_SEGMENTS = 12;
+    let wheelRotation = 0;
+    let wheelBuilt = false;
+
+    function buildPrizeWheel() {
+      if (wheelBuilt) return;
+      wheelBuilt = true;
+
+      const bulbCount = 24;
+      wheelBulbs.innerHTML = "";
+      for (let i = 0; i < bulbCount; i += 1) {
+        const bulb = document.createElement("span");
+        bulb.className = "wheel-bulb";
+        const angle = (i / bulbCount) * Math.PI * 2 - Math.PI / 2;
+        const x = 50 + Math.cos(angle) * 48;
+        const y = 50 + Math.sin(angle) * 48;
+        bulb.style.left = `${x}%`;
+        bulb.style.top = `${y}%`;
+        wheelBulbs.appendChild(bulb);
+      }
+
+      // from -90deg ⇒ segment 0 starts at the top (under the arrow) at rotation 0
+      const stops = WHEEL_COLORS.map((color, i) => {
+        const start = (i / WHEEL_SEGMENTS) * 360;
+        const end = ((i + 1) / WHEEL_SEGMENTS) * 360;
+        return `${color} ${start}deg ${end}deg`;
+      }).join(", ");
+      wheelDisk.style.background = `conic-gradient(from -90deg, ${stops})`;
+      wheelDisk.innerHTML = "";
+
+      for (let i = 0; i < WHEEL_SEGMENTS; i += 1) {
+        const label = document.createElement("span");
+        label.className = "wheel-segment-label";
+        label.dataset.slot = String(i);
+        label.textContent = "·";
+        wheelDisk.appendChild(label);
+      }
+      layoutWheelLabels();
+    }
+
+    function layoutWheelLabels() {
+      const radius = Math.max(88, (wheelDisk.clientWidth || 280) * 0.34);
+      wheelDisk.querySelectorAll(".wheel-segment-label").forEach((el, i) => {
+        const mid = ((i + 0.5) / WHEEL_SEGMENTS) * 360;
+        el.style.transform = `rotate(${mid}deg) translateY(-${radius}px) rotate(${-mid}deg)`;
+      });
+    }
+
+    /** Put the real number on the winning segment before spin; decoys on the rest.
+     *  Do not highlight the winner until the spin has fully stopped. */
+    function paintWheelNumbers(winNumber, winSeg) {
+      layoutWheelLabels();
+      const labels = [...wheelDisk.querySelectorAll(".wheel-segment-label")];
+      const used = new Set([Number(winNumber)]);
+
+      labels.forEach((el, i) => {
+        el.classList.remove("is-winner");
+        if (i === winSeg) {
+          el.textContent = String(winNumber);
+          return;
+        }
+        let decoy = Math.floor(Math.random() * maxNumber) + 1;
+        let guard = 0;
+        while (used.has(decoy) && guard < 40) {
+          decoy = Math.floor(Math.random() * maxNumber) + 1;
+          guard += 1;
+        }
+        used.add(decoy);
+        el.textContent = String(decoy);
+      });
+    }
+
+    function highlightWheelWinner(winSeg) {
+      wheelDisk.querySelectorAll(".wheel-segment-label").forEach((el, i) => {
+        el.classList.toggle("is-winner", i === winSeg);
+      });
+    }
+
+    buildPrizeWheel();
+    window.addEventListener("resize", layoutWheelLabels);
+
+    function setJoinLink(url) {
+      playerJoinUrl.textContent = url;
+      qrImage.src = `/api/qr?url=${encodeURIComponent(url)}`;
+    }
+
+    fetch("/api/join-info")
+      .then((r) => r.json())
+      .then((info) => {
+        // Prefer LAN URL so phones can reach this PC (localhost only works on the host).
+        const url =
+          info.primaryPlayerUrl ||
+          info.lanUrls?.[0] ||
+          info.playerUrls?.find((u) => !/localhost|127\.0\.0\.1/i.test(u)) ||
+          info.playerUrls?.[0];
+        if (url) setJoinLink(url);
+        if (/localhost|127\.0\.0\.1/i.test(url || "")) {
+          lobbyStatus.textContent =
+            "No Wi‑Fi IP found — connect this PC to Wi‑Fi, then refresh. Phones cannot open localhost.";
+        }
+      })
+      .catch(() => {
+        lobbyStatus.textContent = "Could not load join link.";
+      });
+
+    function cachePhotos(list) {
+      for (const p of list || []) {
+        if (p.photo) playerPhotos.set(p.id, p.photo);
+        else if (!p.photo && playerPhotos.has(p.id)) {
+          p.photo = playerPhotos.get(p.id);
+        }
+      }
+    }
+
+    function mergePlayer(player) {
+      cachePhotos([player]);
+      const idx = latestLeaderboard.findIndex((p) => p.id === player.id);
+      if (idx >= 0) latestLeaderboard[idx] = { ...latestLeaderboard[idx], ...player };
+      else latestLeaderboard.push(player);
+      latestLeaderboard.sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        return (b.markedCount || 0) - (a.markedCount || 0);
+      });
+    }
+
+    function renderLobby() {
+      playerCountBadge.textContent = `(${latestLeaderboard.length})`;
+      lobbyPlayerList.innerHTML = latestLeaderboard
+        .map((p) => {
+          const photo = p.photo || playerPhotos.get(p.id);
+          const avatar = photo
+            ? `<img class="player-avatar" src="${photo}" alt="">`
+            : `<span class="player-avatar player-avatar-placeholder">?</span>`;
+          const flag = p.countryCode ? renderCountryFlagImg(p.countryCode, p.countryName) : "";
+          return `<div class="lobby-chip">${avatar}${flag}<span class="player-name">${escapeHtml(p.name)}</span></div>`;
+        })
+        .join("");
+      startBtn.disabled = latestLeaderboard.length < 1;
+      lobbyStatus.textContent = latestLeaderboard.length
+        ? `${latestLeaderboard.length} player${latestLeaderboard.length === 1 ? "" : "s"} registered — press Start game`
+        : "Scan the QR code first, then register on your phone";
+      updateLobbySteps(latestLeaderboard.length);
+    }
+
+    let rankingUnit = "in row";
+    let firstLevelChampion = null;
+
+    function rankingHintText() {
+      return rankingUnit === "cells"
+        ? "After first bingo — by all marked cells"
+        : "Race to first line — by cells filled in best row";
+    }
+
+    function showFirstLevelChampion(player) {
+      if (!player) {
+        firstLevelChampion = null;
+        document.getElementById("firstLevelChamp").classList.add("hidden");
+        return;
+      }
+      firstLevelChampion = player;
+      cachePhotos([player]);
+      const photo = player.photo || playerPhotos.get(player.id);
+      const box = document.getElementById("firstLevelChamp");
+      const img = document.getElementById("firstLevelPhoto");
+      const flag = document.getElementById("firstLevelFlag");
+      const name = document.getElementById("firstLevelName");
+      if (photo) {
+        img.src = photo;
+        img.classList.remove("hidden");
+      } else {
+        img.removeAttribute("src");
+        img.classList.add("hidden");
+      }
+      flag.innerHTML = player.countryCode
+        ? renderCountryFlagImg(player.countryCode, player.countryName)
+        : "";
+      name.textContent = player.name || "Player";
+      box.classList.remove("hidden");
+    }
+
+    function renderRanking(list) {
+      cachePhotos(list);
+      const hint = document.getElementById("rankingHint");
+      if (hint) hint.textContent = rankingHintText();
+      // Keep first-level champ pinned above; still list everyone below
+      rankingList.innerHTML = (list || [])
+        .map((p, i) => {
+          const withPhoto = { ...p, photo: p.photo || playerPhotos.get(p.id) };
+          const row = renderLeaderboardItem(withPhoto, i, rankingUnit);
+          if (firstLevelChampion && p.id === firstLevelChampion.id) {
+            return row.replace(
+              'class="leaderboard-row',
+              'class="leaderboard-row first-level-row'
+            );
+          }
+          return row;
+        })
+        .join("");
+    }
+
+    function renderCalledStrip(numbers, latest) {
+      const list = numbers || [];
+      // Newest first so the latest calls stay visible at the top of the scroll panel
+      const newestFirst = [...list].reverse();
+      calledStrip.innerHTML = newestFirst
+        .map((n) => `<span class="called-chip${n === latest ? " latest" : ""}">${n}</span>`)
+        .join("");
+      requestAnimationFrame(() => {
+        calledStrip.scrollTop = 0;
+        calledStrip.scrollLeft = 0;
+        const latestEl = calledStrip.querySelector(".called-chip.latest");
+        if (latestEl) latestEl.scrollIntoView({ block: "nearest", inline: "nearest" });
+      });
+    }
+
+    function setActiveLetter(letter) {
+      bingoLetters.querySelectorAll(".bingo-letter").forEach((el) => {
+        el.classList.toggle("active", el.dataset.letter === String(letter));
+      });
+    }
+
+    function hideHubNumber() {
+      calledBall.classList.remove("reveal");
+      calledBall.classList.add("spin-wait");
+      ballLetter.textContent = "";
+      ballNumber.textContent = "";
+      ballNumber.setAttribute("data-hidden", "1");
+    }
+
+    function showHubNumber(letter, number) {
+      calledBall.classList.remove("spin-wait");
+      ballLetter.textContent = letter && letter !== "·" ? `COL ${letter}` : "CALL";
+      ballNumber.textContent = String(number);
+      ballNumber.removeAttribute("data-hidden");
+      calledBall.classList.add("reveal");
+    }
+
+    function clearMarkersHero() {
+      markedThisCall.clear();
+      markersHeroGrid.innerHTML = "";
+      markersHeroGrid.dataset.count = "0";
+      markersHeroGrid.classList.remove("wrap-many");
+      markersRail.innerHTML = "";
+      markersHeroEmpty.classList.remove("hidden");
+      markersHeroEmpty.textContent = "Waiting for players…";
+    }
+
+    function showWheelStage() {
+      markersHero.classList.add("hidden");
+      markersHero.setAttribute("aria-hidden", "true");
+      prizeWheelStage.classList.remove("hidden");
+    }
+
+    function showMarkersHeroStage(number) {
+      prizeWheelStage.classList.add("hidden");
+      markersHero.classList.remove("hidden");
+      markersHero.setAttribute("aria-hidden", "false");
+      markersHeroNumber.textContent = String(number);
+      markersHeroEmpty.classList.toggle("hidden", markedThisCall.size > 0);
+    }
+
+    function addMarkerHero(player) {
+      if (!player?.id || markedThisCall.has(player.id)) return;
+      markedThisCall.add(player.id);
+      cachePhotos([player]);
+      const photo = player.photo || playerPhotos.get(player.id);
+      if (!photo) return;
+
+      markersHeroEmpty.classList.add("hidden");
+      const card = document.createElement("div");
+      card.className = "markers-hero-card";
+      card.innerHTML = `
+        <div class="markers-hero-photo-wrap">
+          <img src="${photo}" alt="">
+        </div>
+        ${player.countryCode ? renderCountryFlagImg(player.countryCode, player.countryName) : ""}
+        <div class="markers-hero-name">${escapeHtml(player.name)}</div>
+      `;
+      markersHeroGrid.appendChild(card);
+
+      const count = markedThisCall.size;
+      markersHeroGrid.dataset.count = String(Math.min(count, 8));
+      markersHeroGrid.classList.toggle("wrap-many", count > 5);
+
+      const mini = document.createElement("div");
+      mini.className = "marker-card";
+      mini.innerHTML = `<img src="${photo}" alt=""><div class="name">${escapeHtml(player.name)}</div>`;
+      markersRail.prepend(mini);
+    }
+
+    function scheduleMarkersShowcase(number) {
+      clearTimeout(hubHoldTimer);
+      clearTimeout(markersTimer);
+      currentRevealNumber = number;
+
+      hubHoldTimer = setTimeout(() => {
+        showMarkersHeroStage(number);
+        markersTimer = setTimeout(() => {
+          showWheelStage();
+          currentRevealNumber = null;
+        }, MARKERS_SHOW_MS);
+      }, HUB_HOLD_MS);
+    }
+
+    function runCasinoReveal(letter, number, drawSequence) {
+      primeGameAudio();
+      playDrawSpinSound(getWheelSoundStyle(), SPIN_MS);
+      buildPrizeWheel();
+
+      clearTimeout(hubHoldTimer);
+      clearTimeout(markersTimer);
+      clearMarkersHero();
+      showWheelStage();
+      currentRevealNumber = number;
+
+      wheelBusy = true;
+      hideHubNumber();
+      wheelCaption.textContent = "Spinning…";
+      prizeWheelStage.classList.add("spinning");
+
+      // Land on a non-red slice so the answer isn't visually marked during the spin
+      const safeSegs = [2, 3, 4, 5, 6, 7];
+      const winSeg = safeSegs[((Number(number) % safeSegs.length) + safeSegs.length) % safeSegs.length];
+      paintWheelNumbers(number, winSeg);
+      const segmentCenter = ((winSeg + 0.5) / WHEEL_SEGMENTS) * 360;
+
+      const spins = 5 + Math.floor(Math.random() * 3);
+      const currentMod = ((wheelRotation % 360) + 360) % 360;
+      const desiredMod = (360 - segmentCenter) % 360;
+      let delta = desiredMod - currentMod;
+      if (delta <= 0) delta += 360;
+      wheelRotation += spins * 360 + delta;
+
+      wheelDisk.classList.remove("spinning");
+      void wheelDisk.offsetWidth;
+      wheelDisk.style.transform = `rotate(${wheelRotation}deg)`;
+      wheelDisk.classList.add("spinning");
+
+      clearTimeout(spinTimer);
+      spinTimer = setTimeout(() => {
+        prizeWheelStage.classList.remove("spinning");
+        highlightWheelWinner(winSeg);
+        showHubNumber(letter, number);
+        wheelCaption.textContent = `Number ${number}`;
+        if (runCasinoReveal._pendingCalled) {
+          renderCalledStrip(runCasinoReveal._pendingCalled, number);
+          runCasinoReveal._pendingCalled = null;
+        }
+        setActiveLetter(letter);
+        playNumberRevealSound(getWheelSoundStyle());
+        lastRevealedSequence = drawSequence || lastDrawSequence;
+        wheelBusy = false;
+        scheduleMarkersShowcase(number);
+      }, SPIN_MS);
+    }
+
+    function updateLobbySteps(playerCount) {
+      const steps = document.querySelectorAll(".lobby-steps li");
+      if (!steps.length) return;
+      steps[0].classList.toggle("active", playerCount === 0);
+      steps[0].classList.toggle("done", playerCount > 0);
+      steps[1].classList.toggle("active", playerCount > 0);
+      steps[1].classList.toggle("done", false);
+      steps[2].classList.toggle("active", playerCount > 0);
+    }
+
+    function showViews(state) {
+      // Always begin on QR lobby until the host starts a live game.
+      const playing = state.started && !state.ended;
+      const ended = !!state.ended;
+      lobbyView.classList.toggle("hidden", playing);
+      gameView.classList.toggle("hidden", !playing);
+      lobbyActions.classList.toggle("hidden", playing || ended);
+      gameActions.classList.toggle("hidden", !playing);
+      endedActions.classList.toggle("hidden", !ended || playing);
+      if (playing) {
+        const mode = modeValueFromState(state);
+        syncDrawModeSelects(mode);
+        const modeLabel =
+          mode === "manual"
+            ? "manual draw"
+            : mode === "20"
+              ? "auto every 20s"
+              : mode === "15"
+                ? "auto every 15s"
+                : "auto every 10s";
+        headerSub.textContent =
+          `${state.remainingCount} numbers left · ${modeLabel} · win at ${state.winRows} rows`;
+      } else if (ended) {
+        headerSub.textContent = "Champion crowned — next game shows QR again";
+      } else {
+        headerSub.textContent = "1. Scan QR → 2. Register → 3. Start";
+      }
+    }
+
+    function showChampion(leaderboard) {
+      cachePhotos(leaderboard);
+      const champ = leaderboard[0];
+      if (!champ) return;
+      playChampionSound();
+      const photo = champ.photo || playerPhotos.get(champ.id);
+      document.getElementById("championPhoto").src = photo || "";
+      document.getElementById("championName").textContent = champ.name;
+      document.getElementById("championScore").textContent =
+        rankingUnit === "cells"
+          ? `${champ.score} marked cells`
+          : `${champ.score} cells in best row`;
+      document.getElementById("championFlag").innerHTML = champ.countryCode
+        ? renderCountryFlagImg(champ.countryCode, champ.countryName)
+        : "";
+      document.getElementById("championRankingList").innerHTML = leaderboard
+        .map((p, i) => {
+          const withPhoto = { ...p, photo: p.photo || playerPhotos.get(p.id) };
+          return renderLeaderboardItem(withPhoto, i, rankingUnit);
+        })
+        .join("");
+      championOverlay.classList.remove("hidden");
+      championOverlay.setAttribute("aria-hidden", "false");
+    }
+
+    function hideChampion() {
+      championOverlay.classList.add("hidden");
+      championOverlay.setAttribute("aria-hidden", "true");
+    }
+
+    function syncSettingsHint() {
+      const rows = Number(cardRowsInput.value) || 4;
+      const cols = Number(cardColsInput.value) || 9;
+      const filled = Math.max(3, Math.min(cols - 1, Math.round(cols * (5 / 9))));
+      winRowsInput.max = String(rows);
+      if (Number(winRowsInput.value) > rows) winRowsInput.value = String(rows);
+      settingsHint.textContent =
+        `${rows}×${cols} ticket · about ${filled} numbers + ${cols - filled} blanks per row · numbers 1–${cols === 9 ? 90 : cols * 10}`;
+    }
+
+    function readCardSettings() {
+      return {
+        cardRows: Number(cardRowsInput.value) || 4,
+        cardCols: Number(cardColsInput.value) || 9,
+        winRows: Number(winRowsInput.value) || Number(cardRowsInput.value) || 4
+      };
+    }
+
+    cardRowsInput.addEventListener("change", () => {
+      syncSettingsHint();
+      socket.emit("hostUpdateSettings", readCardSettings());
+    });
+    cardColsInput.addEventListener("change", () => {
+      syncSettingsHint();
+      socket.emit("hostUpdateSettings", readCardSettings());
+    });
+    winRowsInput.addEventListener("change", () => {
+      syncSettingsHint();
+      socket.emit("hostUpdateSettings", readCardSettings());
+    });
+    syncSettingsHint();
+
+    function readDrawMode(fromGame = false) {
+      const el = fromGame ? drawModeSelectGame : drawModeSelect;
+      const value = el.value;
+      if (value === "10") return { autoDraw: true, autoDrawMs: 10000 };
+      if (value === "15") return { autoDraw: true, autoDrawMs: 15000 };
+      if (value === "20") return { autoDraw: true, autoDrawMs: 20000 };
+      return { autoDraw: false, autoDrawMs: 10000 };
+    }
+
+    function syncDrawModeSelects(modeValue) {
+      if (!modeValue) return;
+      drawModeSelect.value = modeValue;
+      drawModeSelectGame.value = modeValue;
+      drawBtn.textContent = modeValue === "manual" ? "Draw number" : "Draw now";
+    }
+
+    function modeValueFromState(state) {
+      if (!state?.autoDraw) return "manual";
+      const ms = Number(state.autoDrawMs) || 0;
+      if (ms >= 18000) return "20";
+      if (ms >= 14000) return "15";
+      return "10";
+    }
+
+    function syncWheelSoundSelects(style) {
+      const value = style || getWheelSoundStyle();
+      setWheelSoundStyle(value);
+      if (wheelSoundSelect) wheelSoundSelect.value = value;
+      if (wheelSoundSelectGame) wheelSoundSelectGame.value = value;
+    }
+
+    syncWheelSoundSelects(getWheelSoundStyle());
+
+    function onWheelSoundChange(value) {
+      syncWheelSoundSelects(value);
+      primeGameAudio();
+      if (value !== "off") {
+        playDrawSpinSound(value, 1200);
+        setTimeout(() => playNumberRevealSound(value), 1300);
+      }
+    }
+
+    if (wheelSoundSelect) {
+      wheelSoundSelect.addEventListener("change", () => onWheelSoundChange(wheelSoundSelect.value));
+    }
+    if (wheelSoundSelectGame) {
+      wheelSoundSelectGame.addEventListener("change", () => onWheelSoundChange(wheelSoundSelectGame.value));
+    }
+
+    drawModeSelect.addEventListener("change", () => {
+      syncDrawModeSelects(drawModeSelect.value);
+    });
+    drawModeSelectGame.addEventListener("change", () => {
+      syncDrawModeSelects(drawModeSelectGame.value);
+      socket.emit("hostToggleAutoDraw", readDrawMode(true));
+    });
+
+    startBtn.addEventListener("click", () => {
+      primeGameAudio();
+      socket.emit("hostStartGame", {
+        ...readDrawMode(false),
+        ...readCardSettings()
+      });
+    });
+    drawBtn.addEventListener("click", () => {
+      primeGameAudio();
+      clearTimeout(hubHoldTimer);
+      clearTimeout(markersTimer);
+      clearMarkersHero();
+      showWheelStage();
+      wheelBusy = true;
+      hideHubNumber();
+      wheelCaption.textContent = "Spinning…";
+      prizeWheelStage.classList.add("spinning");
+      socket.emit("hostDrawNumber");
+    });
+    endBtn.addEventListener("click", () => socket.emit("hostEndGame"));
+    resetBtn.addEventListener("click", () => socket.emit("hostResetGame"));
+    championResetBtn.addEventListener("click", () => socket.emit("hostResetGame"));
+
+    socket.on("lobbySnapshot", ({ players }) => {
+      latestLeaderboard = players || [];
+      cachePhotos(latestLeaderboard);
+      renderLobby();
+    });
+
+    socket.on("playerJoined", (player) => {
+      mergePlayer(player);
+      renderLobby();
+      if (!gameView.classList.contains("hidden")) renderRanking(latestLeaderboard);
+    });
+
+    socket.on("playerLeft", ({ id }) => {
+      latestLeaderboard = latestLeaderboard.filter((p) => p.id !== id);
+      playerPhotos.delete(id);
+      renderLobby();
+    });
+
+    socket.on("rankingPhase", (payload) => {
+      if (payload?.rankingUnit) rankingUnit = payload.rankingUnit;
+      const champ = payload?.firstLevelChampion || payload?.firstBingoPlayer;
+      if (champ) showFirstLevelChampion(champ);
+      const hint = document.getElementById("rankingHint");
+      if (hint) hint.textContent = rankingHintText();
+      renderRanking(latestLeaderboard);
+    });
+
+    socket.on("firstLevelChampion", ({ player }) => {
+      if (player) showFirstLevelChampion(player);
+      playChampionSound();
+    });
+
+    socket.on("lobbyCleared", () => {
+      latestLeaderboard = [];
+      playerPhotos.clear();
+      rankingUnit = "in row";
+      showFirstLevelChampion(null);
+      clearTimeout(hubHoldTimer);
+      clearTimeout(markersTimer);
+      clearMarkersHero();
+      showWheelStage();
+      hideChampion();
+      markersRail.innerHTML = "";
+      calledStrip.innerHTML = "";
+      renderLobby();
+    });
+
+    socket.on("numberDrawn", (payload) => {
+      markersRail.innerHTML = "";
+      clearMarkersHero();
+      showWheelStage();
+      runCasinoReveal._pendingCalled = payload.calledNumbers || [];
+      const previous = (payload.calledNumbers || []).slice(0, -1);
+      renderCalledStrip(previous, null);
+      if (payload.drawSequence !== lastDrawSequence) {
+        lastDrawSequence = payload.drawSequence;
+        runCasinoReveal(payload.letter, payload.number, payload.drawSequence);
+      }
+    });
+
+    socket.on("playerMarked", ({ player, number }) => {
+      mergePlayer(player);
+      renderRanking(latestLeaderboard);
+      if (currentRevealNumber != null && Number(number) === Number(currentRevealNumber)) {
+        addMarkerHero(player);
+      }
+    });
+
+    socket.on("gameState", (state) => {
+      // Host screen always opens from QR lobby — clear leftover finished games.
+      if (!bootstrapped) {
+        bootstrapped = true;
+        if (state.ended) {
+          socket.emit("hostResetGame");
+          return;
+        }
+      }
+
+      cachePhotos(state.leaderboard);
+      latestLeaderboard = (state.leaderboard || []).map((p) => ({
+        ...p,
+        photo: p.photo || playerPhotos.get(p.id)
+      }));
+      if (state.maxNumber) maxNumber = state.maxNumber;
+      if (state.settings && !state.started) {
+        cardRowsInput.value = String(state.settings.cardRows || 4);
+        cardColsInput.value = String(state.settings.cardCols || 9);
+        winRowsInput.value = String(state.settings.winRows || state.settings.cardRows || 4);
+        cardRowsInput.min = String(state.settings.minRows || 3);
+        cardRowsInput.max = String(state.settings.maxRows || 6);
+        cardColsInput.min = String(state.settings.minCols || 4);
+        cardColsInput.max = String(state.settings.maxCols || 10);
+        syncSettingsHint();
+      }
+      if (state.rankingUnit) rankingUnit = state.rankingUnit;
+      if (state.firstLevelChampion) {
+        showFirstLevelChampion(state.firstLevelChampion);
+      } else if (!state.firstBingoAchieved) {
+        showFirstLevelChampion(null);
+      }
+      showViews(state);
+      if (!state.started || state.ended) renderLobby();
+      else renderRanking(latestLeaderboard);
+
+      if (!wheelBusy) {
+        // Only restore a number that was already fully revealed (never mid-spin)
+        if (
+          state.currentNumber &&
+          state.drawSequence &&
+          state.drawSequence === lastRevealedSequence
+        ) {
+          showHubNumber(state.currentLetter, state.currentNumber);
+          setActiveLetter(state.currentLetter);
+        }
+        if (state.calledNumbers?.length && state.drawSequence === lastRevealedSequence) {
+          renderCalledStrip(state.calledNumbers, state.currentNumber);
+        }
+      }
+      if (state.ended && state.leaderboard?.length) {
+        showChampion(state.leaderboard);
+      } else if (!state.ended) {
+        hideChampion();
+      }
+    });
+
+    socket.on("gameOver", ({ leaderboard }) => {
+      showChampion(leaderboard || []);
+    });
+
+    socket.on("hostError", ({ message }) => {
+      alert(message || "Host action failed.");
+    });
+  </script>
+</body>
+</html>

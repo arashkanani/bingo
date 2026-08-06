@@ -248,3 +248,85 @@ function playChampionSound() {
 
 getWheelSoundStyle();
 
+const VOICE_TONES = {
+  off: null,
+  clear: { rate: 0.92, pitch: 1.0, prefer: /en(-|_)?(us|gb|au)?/i },
+  warm: { rate: 0.85, pitch: 0.85, prefer: /en/i },
+  bright: { rate: 1.05, pitch: 1.35, prefer: /en/i },
+  deep: { rate: 0.8, pitch: 0.55, prefer: /en/i },
+  announcer: { rate: 0.88, pitch: 1.15, prefer: /en(-|_)?(us|gb)/i }
+};
+
+let callVoiceTone = "clear";
+
+function setCallVoiceTone(tone) {
+  callVoiceTone = Object.prototype.hasOwnProperty.call(VOICE_TONES, tone) ? tone : "clear";
+  try {
+    localStorage.setItem("bingo_call_voice", callVoiceTone);
+  } catch (_err) {
+    /* ignore */
+  }
+}
+
+function getCallVoiceTone() {
+  try {
+    const saved = localStorage.getItem("bingo_call_voice");
+    if (saved) setCallVoiceTone(saved);
+  } catch (_err) {
+    /* ignore */
+  }
+  return callVoiceTone;
+}
+
+function pickSpeechVoice(prefer) {
+  if (!window.speechSynthesis) return null;
+  const voices = window.speechSynthesis.getVoices() || [];
+  if (!voices.length) return null;
+  const preferred = voices.find((v) => prefer && prefer.test(`${v.lang} ${v.name}`));
+  if (preferred) return preferred;
+  const english = voices.find((v) => /^en/i.test(v.lang));
+  return english || voices[0];
+}
+
+function speakCalledNumber(number, tone) {
+  try {
+    const packName = tone || getCallVoiceTone();
+    const pack = VOICE_TONES[packName];
+    if (!pack || !window.speechSynthesis) return;
+
+    const n = Number(number);
+    if (!Number.isFinite(n)) return;
+
+    window.speechSynthesis.cancel();
+    const utter = new SpeechSynthesisUtterance(String(n));
+    utter.rate = pack.rate;
+    utter.pitch = pack.pitch;
+    utter.volume = 1;
+
+    const applyVoice = () => {
+      const voice = pickSpeechVoice(pack.prefer);
+      if (voice) {
+        utter.voice = voice;
+        utter.lang = voice.lang || "en-US";
+      } else {
+        utter.lang = "en-US";
+      }
+      window.speechSynthesis.speak(utter);
+    };
+
+    const voices = window.speechSynthesis.getVoices();
+    if (voices && voices.length) applyVoice();
+    else {
+      window.speechSynthesis.onvoiceschanged = () => {
+        window.speechSynthesis.onvoiceschanged = null;
+        applyVoice();
+      };
+      setTimeout(applyVoice, 250);
+    }
+  } catch (_err) {
+    /* ignore */
+  }
+}
+
+getCallVoiceTone();
+

@@ -52,6 +52,17 @@
             <option value="off">Off</option>
           </select>
         </label>
+        <label class="draw-mode-field">
+          <span>Say number</span>
+          <select id="voiceToneSelectGame">
+            <option value="off">Off</option>
+            <option value="clear">Clear</option>
+            <option value="warm">Warm</option>
+            <option value="bright">Bright</option>
+            <option value="deep">Deep</option>
+            <option value="announcer">Announcer</option>
+          </select>
+        </label>
         <button id="drawBtn">Draw number</button>
         <button id="endBtn" class="danger">End &amp; crown</button>
       </div>
@@ -103,6 +114,17 @@
               <option value="soft">Soft chimes</option>
               <option value="dramatic">Dramatic</option>
               <option value="off">Off</option>
+            </select>
+          </label>
+          <label class="setting-field">
+            <span>Say number</span>
+            <select id="voiceToneSelect">
+              <option value="off">Off</option>
+              <option value="clear" selected>Clear</option>
+              <option value="warm">Warm</option>
+              <option value="bright">Bright</option>
+              <option value="deep">Deep</option>
+              <option value="announcer">Announcer</option>
             </select>
           </label>
         </div>
@@ -207,6 +229,8 @@
     const drawModeSelectGame = document.getElementById("drawModeSelectGame");
     const wheelSoundSelect = document.getElementById("wheelSoundSelect");
     const wheelSoundSelectGame = document.getElementById("wheelSoundSelectGame");
+    const voiceToneSelect = document.getElementById("voiceToneSelect");
+    const voiceToneSelectGame = document.getElementById("voiceToneSelectGame");
     const cardRowsInput = document.getElementById("cardRowsInput");
     const cardColsInput = document.getElementById("cardColsInput");
     const winRowsInput = document.getElementById("winRowsInput");
@@ -553,6 +577,11 @@
       clearMarkersHero();
       showWheelStage();
       currentRevealNumber = number;
+      try {
+        if (window.speechSynthesis) window.speechSynthesis.cancel();
+      } catch (_err) {
+        /* ignore */
+      }
 
       wheelBusy = true;
       hideHubNumber();
@@ -589,6 +618,7 @@
         }
         setActiveLetter(letter);
         playNumberRevealSound(getWheelSoundStyle());
+        speakCalledNumber(number, getCallVoiceTone());
         lastRevealedSequence = drawSequence || lastDrawSequence;
         wheelBusy = false;
         scheduleMarkersShowcase(number);
@@ -728,6 +758,28 @@
     }
 
     syncWheelSoundSelects(getWheelSoundStyle());
+
+    function syncVoiceToneSelects(tone) {
+      const value = tone || getCallVoiceTone();
+      setCallVoiceTone(value);
+      if (voiceToneSelect) voiceToneSelect.value = value;
+      if (voiceToneSelectGame) voiceToneSelectGame.value = value;
+    }
+
+    syncVoiceToneSelects(getCallVoiceTone());
+
+    function onVoiceToneChange(value) {
+      syncVoiceToneSelects(value);
+      primeGameAudio();
+      if (value !== "off") speakCalledNumber(42, value);
+    }
+
+    if (voiceToneSelect) {
+      voiceToneSelect.addEventListener("change", () => onVoiceToneChange(voiceToneSelect.value));
+    }
+    if (voiceToneSelectGame) {
+      voiceToneSelectGame.addEventListener("change", () => onVoiceToneChange(voiceToneSelectGame.value));
+    }
 
     function onWheelSoundChange(value) {
       syncWheelSoundSelects(value);

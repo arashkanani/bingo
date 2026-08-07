@@ -192,6 +192,14 @@ function rankingUnit() {
   return game.firstBingoAchieved ? "cells" : "in row";
 }
 
+function normalizeEventTitle(value) {
+  const title = String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 48);
+  return title;
+}
+
 function createNewGame(settings = {}) {
   const size = normalizeCardSize(
     settings.cardRows ?? DEFAULT_CARD_ROWS,
@@ -207,6 +215,7 @@ function createNewGame(settings = {}) {
   return {
     started: false,
     ended: false,
+    eventTitle: normalizeEventTitle(settings.eventTitle),
     cardRows: size.rows,
     cardCols: size.cols,
     maxNumber: maxNum,
@@ -324,10 +333,12 @@ function buildGameStatePayload() {
     playerCount: players.size,
     registrationOpen,
     playerCap: MAX_PLAYERS,
+    eventTitle: game.eventTitle || "",
     settings: {
       cardRows: game.cardRows,
       cardCols: game.cardCols,
       winRows: game.winRows,
+      eventTitle: game.eventTitle || "",
       minRows: MIN_CARD_ROWS,
       maxRows: MAX_CARD_ROWS,
       minCols: MIN_CARD_COLS,
@@ -400,6 +411,7 @@ function drawNextNumber() {
 
 function resetLobby() {
   clearAutoDraw();
+  const keptTitle = game.eventTitle;
   for (const player of players.values()) {
     if (player.socketId) {
       const sock = io.sockets.sockets.get(player.socketId);
@@ -408,14 +420,23 @@ function resetLobby() {
   }
   players.clear();
   socketToPlayerId.clear();
-  game = createNewGame();
+  game = createNewGame({ eventTitle: keptTitle });
   io.emit("lobbyCleared");
   emitGameState();
 }
 
-function startGame({ autoDraw = false, autoDrawMs, cardRows, cardCols, winRows } = {}) {
+function startGame({
+  autoDraw = false,
+  autoDrawMs,
+  cardRows,
+  cardCols,
+  winRows,
+  eventTitle
+} = {}) {
   clearAutoDraw();
-  game = createNewGame({ cardRows, cardCols, winRows });
+  const title =
+    eventTitle !== undefined ? normalizeEventTitle(eventTitle) : game.eventTitle;
+  game = createNewGame({ cardRows, cardCols, winRows, eventTitle: title });
   game.started = true;
   if (autoDrawMs) game.autoDrawMs = Math.max(10000, Number(autoDrawMs) || 10000);
   game.autoDraw = !!autoDraw;
@@ -725,7 +746,8 @@ io.on("connection", (socket) => {
       autoDrawMs: payload?.autoDrawMs,
       cardRows: payload?.cardRows,
       cardCols: payload?.cardCols,
-      winRows: payload?.winRows
+      winRows: payload?.winRows,
+      eventTitle: payload?.eventTitle
     });
   });
 
@@ -741,6 +763,9 @@ io.on("connection", (socket) => {
       game.cardCols = size.cols;
       game.maxNumber = maxNumberForCols(size.cols);
       game.winRows = winRows;
+      if (payload && Object.prototype.hasOwnProperty.call(payload, "eventTitle")) {
+        game.eventTitle = normalizeEventTitle(payload.eventTitle);
+      }
       game.remainingNumbers = shuffle(
         Array.from({ length: game.maxNumber }, (_, i) => i + 1)
       );

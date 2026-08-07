@@ -16,60 +16,28 @@
 
   <div class="page">
     <header class="host-header">
-      <div>
-        <h1 class="brand">BINGO</h1>
+      <div class="host-header-left">
         <p class="brand-sub" id="headerSub">1. Scan QR → 2. Register → 3. Start</p>
       </div>
-      <div class="host-actions" id="lobbyActions">
-        <label class="draw-mode-field">
-          <span>Number draw</span>
-          <select id="drawModeSelect">
-            <option value="manual" selected>Manual</option>
-            <option value="10">Every 10 seconds</option>
-            <option value="15">Every 15 seconds</option>
-            <option value="20">Every 20 seconds</option>
-          </select>
-        </label>
-        <button id="startBtn" disabled>Start game</button>
-      </div>
-      <div class="host-actions hidden" id="gameActions">
-        <label class="draw-mode-field">
-          <span>Number draw</span>
-          <select id="drawModeSelectGame">
-            <option value="manual">Manual</option>
-            <option value="10">Every 10 seconds</option>
-            <option value="15">Every 15 seconds</option>
-            <option value="20">Every 20 seconds</option>
-          </select>
-        </label>
-        <label class="draw-mode-field">
-          <span>Wheel sound</span>
-          <select id="wheelSoundSelectGame">
-            <option value="classic">Classic</option>
-            <option value="casino">Casino</option>
-            <option value="soft">Soft</option>
-            <option value="dramatic">Dramatic</option>
-            <option value="off">Off</option>
-          </select>
-        </label>
-        <label class="draw-mode-field">
-          <span>Say number</span>
-          <select id="voiceToneSelectGame">
-            <option value="off">Off</option>
-            <option value="clear">Clear</option>
-            <option value="warm">Warm</option>
-            <option value="bright">Bright</option>
-            <option value="deep">Deep</option>
-            <option value="announcer">Announcer</option>
-          </select>
-        </label>
-        <button id="drawBtn">Draw number</button>
-        <button id="endBtn" class="danger">End &amp; crown</button>
-      </div>
-      <div class="host-actions hidden" id="endedActions">
-        <button id="resetBtn">Next game — show QR</button>
+      <h1 class="brand" id="brandTitle">BINGO</h1>
+      <div class="host-toolbar">
+        <div class="host-actions" id="lobbyActions">
+          <button id="startBtn" disabled>Start game</button>
+        </div>
+        <div class="host-actions hidden" id="gameActions">
+          <button id="drawBtn">Draw number</button>
+        </div>
+        <div class="host-actions hidden" id="endedActions">
+          <button id="resetBtn">Next game — show QR</button>
+        </div>
       </div>
     </header>
+
+    <button type="button" id="settingsBtn" class="settings-btn" aria-label="Settings" title="Settings" aria-expanded="false" aria-controls="settingsOverlay">
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+        <path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.9 2h-3.8a.5.5 0 0 0-.49.42l-.36 2.54c-.6.24-1.15.55-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.7 8.48a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94L2.82 14.58a.5.5 0 0 0-.12.64l1.92 3.32c.14.24.43.34.69.22l2.39-.96c.48.39 1.03.7 1.63.94l.36 2.54c.05.24.25.42.49.42h3.8c.24 0 .44-.18.49-.42l.36-2.54c.6-.24 1.15-.55 1.63-.94l2.39.96c.26.1.55 0 .69-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/>
+      </svg>
+    </button>
 
     <section id="lobbyView">
       <ol class="lobby-steps" aria-label="How to begin">
@@ -79,7 +47,19 @@
       </ol>
       <div class="lobby-grid lobby-grid-qr-first">
         <div class="card qr-panel">
-          <h3>Scan to join</h3>
+          <label class="event-title-field">
+            <span class="event-title-label">Event name</span>
+            <input
+              id="eventTitleInput"
+              class="event-title-input"
+              type="text"
+              maxlength="48"
+              placeholder="BINGO"
+              value="BINGO"
+              autocomplete="off"
+            >
+          </label>
+          <p class="status event-title-hint">Shown in the center instead of BINGO</p>
           <img id="qrImage" alt="QR code to join Bingo">
           <p class="join-url" id="playerJoinUrl">Loading join link…</p>
           <p class="status" id="lobbyStatus">Waiting for the first player to register…</p>
@@ -90,51 +70,12 @@
           <div class="lobby-player-list" id="lobbyPlayerList"></div>
         </div>
       </div>
-      <div class="card settings-panel" id="settingsPanel">
-        <h3>Card settings</h3>
-        <p class="status" style="margin:0 0 0.85rem">Classic old bingo: empty cells at random. Default 4×10 (columns 4–10).</p>
-        <div class="settings-grid">
-          <label class="setting-field">
-            <span>Rows</span>
-            <input type="number" id="cardRowsInput" min="3" max="6" value="4">
-          </label>
-          <label class="setting-field">
-            <span>Columns</span>
-            <input type="number" id="cardColsInput" min="4" max="10" value="10">
-          </label>
-          <label class="setting-field">
-            <span>Rows to win</span>
-            <input type="number" id="winRowsInput" min="1" max="6" value="4">
-          </label>
-          <label class="setting-field">
-            <span>Wheel sound</span>
-            <select id="wheelSoundSelect">
-              <option value="classic">Classic ticks</option>
-              <option value="casino">Casino wheel</option>
-              <option value="soft">Soft chimes</option>
-              <option value="dramatic">Dramatic</option>
-              <option value="off">Off</option>
-            </select>
-          </label>
-          <label class="setting-field">
-            <span>Say number</span>
-            <select id="voiceToneSelect">
-              <option value="off">Off</option>
-              <option value="clear" selected>Clear</option>
-              <option value="warm">Warm</option>
-              <option value="bright">Bright</option>
-              <option value="deep">Deep</option>
-              <option value="announcer">Announcer</option>
-            </select>
-          </label>
-        </div>
-        <p class="status" id="settingsHint">Each row gets numbers + blank cells (classic ticket style).</p>
-      </div>
     </section>
 
     <section id="gameView" class="hidden">
       <div class="game-layout">
         <div class="card draw-stage">
+          <p class="wheel-remaining" id="wheelRemaining" aria-live="polite">— numbers left</p>
           <div class="bingo-letters hidden" id="bingoLetters"></div>
           <div class="prize-wheel-stage" id="prizeWheelStage">
             <div class="wheel-glow" aria-hidden="true"></div>
@@ -176,6 +117,71 @@
     </section>
   </div>
 
+  <div id="settingsOverlay" class="settings-overlay hidden" aria-hidden="true">
+    <div class="card settings-sheet" role="dialog" aria-labelledby="settingsTitle">
+      <div class="settings-sheet-head">
+        <h3 id="settingsTitle">Settings</h3>
+        <button type="button" id="settingsCloseBtn" class="secondary settings-close">Close</button>
+      </div>
+      <p class="status settings-intro">All game options live here.</p>
+      <div class="settings-grid">
+        <label class="setting-field">
+          <span>Number draw</span>
+          <select id="drawModeSelect">
+            <option value="manual" selected>Manual</option>
+            <option value="10">Every 10 seconds</option>
+            <option value="15">Every 15 seconds</option>
+            <option value="20">Every 20 seconds</option>
+          </select>
+        </label>
+        <label class="setting-field">
+          <span>Wheel sound</span>
+          <select id="wheelSoundSelect">
+            <option value="classic">Classic ticks</option>
+            <option value="casino">Casino wheel</option>
+            <option value="soft">Soft chimes</option>
+            <option value="dramatic">Dramatic</option>
+            <option value="off">Off</option>
+          </select>
+        </label>
+        <label class="setting-field">
+          <span>Say number</span>
+          <select id="voiceToneSelect">
+            <option value="off">Off</option>
+            <option value="clear" selected>Clear</option>
+            <option value="warm">Warm</option>
+            <option value="bright">Bright</option>
+            <option value="deep">Deep</option>
+            <option value="announcer">Announcer</option>
+          </select>
+        </label>
+      </div>
+      <div class="settings-card-block" id="settingsCardBlock">
+        <h4>Card</h4>
+        <p class="status" style="margin:0 0 0.75rem">Classic tickets with random blanks. Default 4×10.</p>
+        <div class="settings-grid">
+          <label class="setting-field">
+            <span>Rows</span>
+            <input type="number" id="cardRowsInput" min="3" max="6" value="4">
+          </label>
+          <label class="setting-field">
+            <span>Columns</span>
+            <input type="number" id="cardColsInput" min="4" max="10" value="10">
+          </label>
+          <label class="setting-field">
+            <span>Rows to win</span>
+            <input type="number" id="winRowsInput" min="1" max="6" value="4">
+          </label>
+        </div>
+        <p class="status" id="settingsHint">Each row gets numbers + blank cells (classic ticket style).</p>
+      </div>
+      <div class="settings-game-actions hidden" id="settingsGameActions">
+        <button type="button" id="drawBtnSettings">Draw now</button>
+        <button type="button" id="endBtn" class="danger">End &amp; crown</button>
+      </div>
+    </div>
+  </div>
+
   <div id="championOverlay" class="champion-overlay hidden" aria-hidden="true">
     <div class="card champion-card">
       <div class="champion-hero">
@@ -209,9 +215,9 @@
     let lastRevealedSequence = 0;
     const SPIN_MS = 4800;
     const HUB_HOLD_MS = 1400;
-    const MARKERS_SHOW_MS = 6500;
-    let markersTimer = null;
+    const WHEEL_RETURN_LEAD_MS = 2000;
     let hubHoldTimer = null;
+    let wheelReturnTimer = null;
     let currentRevealNumber = null;
     const markedThisCall = new Set();
 
@@ -222,18 +228,23 @@
     const endedActions = document.getElementById("endedActions");
     const startBtn = document.getElementById("startBtn");
     const drawBtn = document.getElementById("drawBtn");
+    const drawBtnSettings = document.getElementById("drawBtnSettings");
     const endBtn = document.getElementById("endBtn");
     const resetBtn = document.getElementById("resetBtn");
     const championResetBtn = document.getElementById("championResetBtn");
+    const settingsBtn = document.getElementById("settingsBtn");
+    const settingsCloseBtn = document.getElementById("settingsCloseBtn");
+    const settingsOverlay = document.getElementById("settingsOverlay");
+    const settingsCardBlock = document.getElementById("settingsCardBlock");
+    const settingsGameActions = document.getElementById("settingsGameActions");
     const drawModeSelect = document.getElementById("drawModeSelect");
-    const drawModeSelectGame = document.getElementById("drawModeSelectGame");
     const wheelSoundSelect = document.getElementById("wheelSoundSelect");
-    const wheelSoundSelectGame = document.getElementById("wheelSoundSelectGame");
     const voiceToneSelect = document.getElementById("voiceToneSelect");
-    const voiceToneSelectGame = document.getElementById("voiceToneSelectGame");
     const cardRowsInput = document.getElementById("cardRowsInput");
     const cardColsInput = document.getElementById("cardColsInput");
     const winRowsInput = document.getElementById("winRowsInput");
+    const eventTitleInput = document.getElementById("eventTitleInput");
+    const brandTitle = document.getElementById("brandTitle");
     const settingsHint = document.getElementById("settingsHint");
     const qrImage = document.getElementById("qrImage");
     const playerJoinUrl = document.getElementById("playerJoinUrl");
@@ -248,6 +259,8 @@
     const wheelDisk = document.getElementById("wheelDisk");
     const wheelBulbs = document.getElementById("wheelBulbs");
     const wheelCaption = document.getElementById("wheelCaption");
+    const wheelRemaining = document.getElementById("wheelRemaining");
+    const headerSub = document.getElementById("headerSub");
     const markersHero = document.getElementById("markersHero");
     const markersHeroGrid = document.getElementById("markersHeroGrid");
     const markersHeroNumber = document.getElementById("markersHeroNumber");
@@ -256,7 +269,6 @@
     const markersRail = document.getElementById("markersRail");
     const bingoLetters = document.getElementById("bingoLetters");
     const championOverlay = document.getElementById("championOverlay");
-    const headerSub = document.getElementById("headerSub");
 
     const WHEEL_COLORS = [
       "#ff6b6b", "#ffa94d", "#ffe066", "#69db7c", "#38d9a9",
@@ -553,17 +565,37 @@
       markersRail.prepend(mini);
     }
 
+    function getAutoDrawMs() {
+      const mode = drawModeSelect?.value;
+      if (mode === "10") return 10000;
+      if (mode === "15") return 15000;
+      if (mode === "20") return 20000;
+      return 0;
+    }
+
+    function clearWheelReturnTimer() {
+      clearTimeout(wheelReturnTimer);
+      wheelReturnTimer = null;
+    }
+
+    /** Auto-draw: back to wheel 2s before the next number. Manual: keep photos until next draw. */
+    function scheduleWheelReturnBeforeNextDraw() {
+      clearWheelReturnTimer();
+      const autoMs = getAutoDrawMs();
+      if (!autoMs) return;
+      const delay = Math.max(0, autoMs - WHEEL_RETURN_LEAD_MS);
+      wheelReturnTimer = setTimeout(() => {
+        wheelReturnTimer = null;
+        showWheelStage();
+      }, delay);
+    }
+
     function scheduleMarkersShowcase(number) {
       clearTimeout(hubHoldTimer);
-      clearTimeout(markersTimer);
       currentRevealNumber = number;
 
       hubHoldTimer = setTimeout(() => {
         showMarkersHeroStage(number);
-        markersTimer = setTimeout(() => {
-          showWheelStage();
-          currentRevealNumber = null;
-        }, MARKERS_SHOW_MS);
       }, HUB_HOLD_MS);
     }
 
@@ -573,10 +605,11 @@
       buildPrizeWheel();
 
       clearTimeout(hubHoldTimer);
-      clearTimeout(markersTimer);
+      clearWheelReturnTimer();
       clearMarkersHero();
       showWheelStage();
       currentRevealNumber = number;
+      scheduleWheelReturnBeforeNextDraw();
       try {
         if (window.speechSynthesis) window.speechSynthesis.cancel();
       } catch (_err) {
@@ -635,6 +668,30 @@
       steps[2].classList.toggle("active", playerCount > 0);
     }
 
+    function updateHostGameControls(playing) {
+      const isPlaying = playing ?? !gameView.classList.contains("hidden");
+      const manual = drawModeSelect.value === "manual";
+      gameActions.classList.toggle("hidden", !(isPlaying && manual));
+      if (settingsGameActions) {
+        settingsGameActions.classList.toggle("hidden", !isPlaying);
+      }
+      drawBtn.textContent = "Draw number";
+      if (drawBtnSettings) {
+        drawBtnSettings.textContent = manual ? "Draw number" : "Draw now";
+      }
+    }
+
+    function setRemainingCount(count) {
+      if (!wheelRemaining) return;
+      const n = Number(count);
+      if (!Number.isFinite(n)) {
+        wheelRemaining.textContent = "— numbers left";
+        return;
+      }
+      wheelRemaining.textContent =
+        n === 1 ? "1 number left" : `${n} numbers left`;
+    }
+
     function showViews(state) {
       // Always begin on QR lobby until the host starts a live game.
       const playing = state.started && !state.ended;
@@ -642,27 +699,56 @@
       lobbyView.classList.toggle("hidden", playing);
       gameView.classList.toggle("hidden", !playing);
       lobbyActions.classList.toggle("hidden", playing || ended);
-      gameActions.classList.toggle("hidden", !playing);
       endedActions.classList.toggle("hidden", !ended || playing);
+      const cardLocked = playing || ended;
+      [cardRowsInput, cardColsInput, winRowsInput].forEach((el) => {
+        if (el) el.disabled = cardLocked;
+      });
+      if (settingsCardBlock) {
+        settingsCardBlock.classList.toggle("is-locked", cardLocked);
+      }
       if (playing) {
         const mode = modeValueFromState(state);
-        syncDrawModeSelects(mode);
-        const modeLabel =
-          mode === "manual"
-            ? "manual draw"
-            : mode === "20"
-              ? "auto every 20s"
-              : mode === "15"
-                ? "auto every 15s"
-                : "auto every 10s";
-        headerSub.textContent =
-          `${state.remainingCount} numbers left · ${modeLabel} · win at ${state.winRows} rows`;
+        syncDrawModeSelect(mode);
+        setRemainingCount(state.remainingCount);
+        headerSub.textContent = "";
+        headerSub.classList.add("hidden");
       } else if (ended) {
+        headerSub.classList.remove("hidden");
         headerSub.textContent = "Champion crowned — next game shows QR again";
+        updateHostGameControls(false);
       } else {
+        headerSub.classList.remove("hidden");
         headerSub.textContent = "1. Scan QR → 2. Register → 3. Start";
+        updateHostGameControls(false);
       }
     }
+
+    function openSettings() {
+      settingsOverlay.classList.remove("hidden");
+      settingsOverlay.setAttribute("aria-hidden", "false");
+      settingsBtn.setAttribute("aria-expanded", "true");
+    }
+
+    function closeSettings() {
+      settingsOverlay.classList.add("hidden");
+      settingsOverlay.setAttribute("aria-hidden", "true");
+      settingsBtn.setAttribute("aria-expanded", "false");
+    }
+
+    settingsBtn.addEventListener("click", () => {
+      if (settingsOverlay.classList.contains("hidden")) openSettings();
+      else closeSettings();
+    });
+    settingsCloseBtn.addEventListener("click", closeSettings);
+    settingsOverlay.addEventListener("click", (e) => {
+      if (e.target === settingsOverlay) closeSettings();
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape" && !settingsOverlay.classList.contains("hidden")) {
+        closeSettings();
+      }
+    });
 
     function showChampion(leaderboard) {
       cachePhotos(leaderboard);
@@ -704,42 +790,70 @@
         `${rows}×${cols} ticket · about ${filled} numbers + ${cols - filled} blanks per row · numbers 1–${cols === 9 ? 90 : cols * 10}`;
     }
 
+    function readEventTitle() {
+      const value = String(eventTitleInput?.value || "").replace(/\s+/g, " ").trim();
+      return value.slice(0, 48);
+    }
+
+    function displayEventTitle(raw) {
+      const value = String(raw || "").replace(/\s+/g, " ").trim();
+      return value || "BINGO";
+    }
+
+    function applyEventTitle(raw) {
+      const shown = displayEventTitle(raw);
+      if (brandTitle) brandTitle.textContent = shown;
+      if (eventTitleInput && document.activeElement !== eventTitleInput) {
+        eventTitleInput.value = String(raw || "").trim() || "BINGO";
+      }
+      document.title = `${shown} — Host Screen`;
+    }
+
     function readCardSettings() {
       return {
         cardRows: Number(cardRowsInput.value) || 4,
         cardCols: Number(cardColsInput.value) || 9,
-        winRows: Number(winRowsInput.value) || Number(cardRowsInput.value) || 4
+        winRows: Number(winRowsInput.value) || Number(cardRowsInput.value) || 4,
+        eventTitle: readEventTitle()
       };
     }
 
-    cardRowsInput.addEventListener("change", () => {
+    function pushSettings() {
       syncSettingsHint();
       socket.emit("hostUpdateSettings", readCardSettings());
-    });
-    cardColsInput.addEventListener("change", () => {
-      syncSettingsHint();
-      socket.emit("hostUpdateSettings", readCardSettings());
-    });
-    winRowsInput.addEventListener("change", () => {
-      syncSettingsHint();
-      socket.emit("hostUpdateSettings", readCardSettings());
-    });
+    }
+
+    cardRowsInput.addEventListener("change", pushSettings);
+    cardColsInput.addEventListener("change", pushSettings);
+    winRowsInput.addEventListener("change", pushSettings);
+
+    let eventTitleSaveTimer = null;
+    if (eventTitleInput) {
+      eventTitleInput.addEventListener("input", () => {
+        applyEventTitle(eventTitleInput.value);
+        clearTimeout(eventTitleSaveTimer);
+        eventTitleSaveTimer = setTimeout(pushSettings, 300);
+      });
+      eventTitleInput.addEventListener("change", () => {
+        clearTimeout(eventTitleSaveTimer);
+        pushSettings();
+      });
+    }
+    applyEventTitle(eventTitleInput?.value || "BINGO");
     syncSettingsHint();
 
-    function readDrawMode(fromGame = false) {
-      const el = fromGame ? drawModeSelectGame : drawModeSelect;
-      const value = el.value;
+    function readDrawMode() {
+      const value = drawModeSelect.value;
       if (value === "10") return { autoDraw: true, autoDrawMs: 10000 };
       if (value === "15") return { autoDraw: true, autoDrawMs: 15000 };
       if (value === "20") return { autoDraw: true, autoDrawMs: 20000 };
       return { autoDraw: false, autoDrawMs: 10000 };
     }
 
-    function syncDrawModeSelects(modeValue) {
+    function syncDrawModeSelect(modeValue) {
       if (!modeValue) return;
       drawModeSelect.value = modeValue;
-      drawModeSelectGame.value = modeValue;
-      drawBtn.textContent = modeValue === "manual" ? "Draw number" : "Draw now";
+      updateHostGameControls();
     }
 
     function modeValueFromState(state) {
@@ -750,26 +864,24 @@
       return "10";
     }
 
-    function syncWheelSoundSelects(style) {
+    function syncWheelSoundSelect(style) {
       const value = style || getWheelSoundStyle();
       setWheelSoundStyle(value);
       if (wheelSoundSelect) wheelSoundSelect.value = value;
-      if (wheelSoundSelectGame) wheelSoundSelectGame.value = value;
     }
 
-    syncWheelSoundSelects(getWheelSoundStyle());
+    syncWheelSoundSelect(getWheelSoundStyle());
 
-    function syncVoiceToneSelects(tone) {
+    function syncVoiceToneSelect(tone) {
       const value = tone || getCallVoiceTone();
       setCallVoiceTone(value);
       if (voiceToneSelect) voiceToneSelect.value = value;
-      if (voiceToneSelectGame) voiceToneSelectGame.value = value;
     }
 
-    syncVoiceToneSelects(getCallVoiceTone());
+    syncVoiceToneSelect(getCallVoiceTone());
 
     function onVoiceToneChange(value) {
-      syncVoiceToneSelects(value);
+      syncVoiceToneSelect(value);
       primeGameAudio();
       if (value !== "off") speakCalledNumber(42, value);
     }
@@ -777,12 +889,9 @@
     if (voiceToneSelect) {
       voiceToneSelect.addEventListener("change", () => onVoiceToneChange(voiceToneSelect.value));
     }
-    if (voiceToneSelectGame) {
-      voiceToneSelectGame.addEventListener("change", () => onVoiceToneChange(voiceToneSelectGame.value));
-    }
 
     function onWheelSoundChange(value) {
-      syncWheelSoundSelects(value);
+      syncWheelSoundSelect(value);
       primeGameAudio();
       if (value !== "off") {
         playDrawSpinSound(value, 1200);
@@ -793,38 +902,47 @@
     if (wheelSoundSelect) {
       wheelSoundSelect.addEventListener("change", () => onWheelSoundChange(wheelSoundSelect.value));
     }
-    if (wheelSoundSelectGame) {
-      wheelSoundSelectGame.addEventListener("change", () => onWheelSoundChange(wheelSoundSelectGame.value));
-    }
 
     drawModeSelect.addEventListener("change", () => {
-      syncDrawModeSelects(drawModeSelect.value);
-    });
-    drawModeSelectGame.addEventListener("change", () => {
-      syncDrawModeSelects(drawModeSelectGame.value);
-      socket.emit("hostToggleAutoDraw", readDrawMode(true));
+      syncDrawModeSelect(drawModeSelect.value);
+      if (!gameView.classList.contains("hidden")) {
+        socket.emit("hostToggleAutoDraw", readDrawMode());
+        // Server restarts the auto timer from now — match wheel return.
+        scheduleWheelReturnBeforeNextDraw();
+      }
     });
 
     startBtn.addEventListener("click", () => {
       primeGameAudio();
+      closeSettings();
       socket.emit("hostStartGame", {
-        ...readDrawMode(false),
+        ...readDrawMode(),
         ...readCardSettings()
       });
     });
-    drawBtn.addEventListener("click", () => {
+    function requestDrawNumber() {
       primeGameAudio();
+      closeSettings();
       clearTimeout(hubHoldTimer);
-      clearTimeout(markersTimer);
+      clearWheelReturnTimer();
       clearMarkersHero();
+      currentRevealNumber = null;
       showWheelStage();
       wheelBusy = true;
       hideHubNumber();
       wheelCaption.textContent = "Spinning…";
       prizeWheelStage.classList.add("spinning");
       socket.emit("hostDrawNumber");
+    }
+
+    drawBtn.addEventListener("click", requestDrawNumber);
+    if (drawBtnSettings) {
+      drawBtnSettings.addEventListener("click", requestDrawNumber);
+    }
+    endBtn.addEventListener("click", () => {
+      closeSettings();
+      socket.emit("hostEndGame");
     });
-    endBtn.addEventListener("click", () => socket.emit("hostEndGame"));
     resetBtn.addEventListener("click", () => socket.emit("hostResetGame"));
     championResetBtn.addEventListener("click", () => socket.emit("hostResetGame"));
 
@@ -866,8 +984,9 @@
       rankingUnit = "in row";
       showFirstLevelChampion(null);
       clearTimeout(hubHoldTimer);
-      clearTimeout(markersTimer);
+      clearWheelReturnTimer();
       clearMarkersHero();
+      currentRevealNumber = null;
       showWheelStage();
       hideChampion();
       markersRail.innerHTML = "";
@@ -879,6 +998,7 @@
       markersRail.innerHTML = "";
       clearMarkersHero();
       showWheelStage();
+      if (payload.remainingCount != null) setRemainingCount(payload.remainingCount);
       runCasinoReveal._pendingCalled = payload.calledNumbers || [];
       const previous = (payload.calledNumbers || []).slice(0, -1);
       renderCalledStrip(previous, null);
@@ -912,6 +1032,10 @@
         photo: p.photo || playerPhotos.get(p.id)
       }));
       if (state.maxNumber) maxNumber = state.maxNumber;
+      applyEventTitle(state.eventTitle || state.settings?.eventTitle || "");
+      if (eventTitleInput) {
+        eventTitleInput.disabled = !!(state.started && !state.ended);
+      }
       if (state.settings && !state.started) {
         cardRowsInput.value = String(state.settings.cardRows || 4);
         cardColsInput.value = String(state.settings.cardCols || 9);

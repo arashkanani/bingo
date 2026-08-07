@@ -15,7 +15,7 @@
 
   <div class="page">
     <div class="mobile-wrap card" id="joinCard">
-      <h2>JOIN BINGO</h2>
+      <h2 id="mobileJoinTitle">JOIN BINGO</h2>
       <p class="status" style="margin-top:0">Name, country &amp; photo — same as SpotIt</p>
 
       <label class="field-label" for="nameInput">Your name</label>
@@ -75,6 +75,7 @@
 
     const joinCard = document.getElementById("joinCard");
     const gameCard = document.getElementById("gameCard");
+    const mobileJoinTitle = document.getElementById("mobileJoinTitle");
     const nameInput = document.getElementById("nameInput");
     const photoInput = document.getElementById("photoInput");
     const photoPreview = document.getElementById("photoPreview");
@@ -429,7 +430,14 @@
       }
     });
 
+    function applyMobileEventTitle(raw) {
+      const title = String(raw || "").replace(/\s+/g, " ").trim() || "BINGO";
+      if (mobileJoinTitle) mobileJoinTitle.textContent = `JOIN ${title}`;
+      document.title = `${title} — Player`;
+    }
+
     socket.on("gameState", (state) => {
+      applyMobileEventTitle(state.eventTitle || state.settings?.eventTitle || "");
       if (state.rankingUnit) rankingUnit = state.rankingUnit;
       if (state.firstLevelChampion) showMobileFirstLevel(state.firstLevelChampion);
       else if (!state.firstBingoAchieved) showMobileFirstLevel(null);

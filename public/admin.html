@@ -66,8 +66,12 @@
             <input id="genCount" type="number" min="1" max="50" value="1">
           </label>
           <label class="access-note-field">
-            Customer name
-            <input id="genCustomerName" type="text" maxlength="80" placeholder="Customer / company name" required>
+            Customer name (optional)
+            <input id="genCustomerName" type="text" maxlength="80" placeholder="Customer / company name">
+          </label>
+          <label class="access-note-field">
+            Password (optional)
+            <input id="genPassword" type="text" maxlength="64" placeholder="Leave blank to auto-generate" autocomplete="off">
           </label>
           <label class="access-note-field">
             Customer email (optional)
@@ -275,12 +279,7 @@
       setStatus("Creating accounts…");
       try {
         const customerName = document.getElementById("genCustomerName").value.trim();
-        if (!customerName) {
-          showErr("Enter the customer name.");
-          setStatus("");
-          busy = false;
-          return;
-        }
+        const password = document.getElementById("genPassword").value.trim();
         const data = await BingoAuth.apiFetch("/api/admin/access/accounts", {
           method: "POST",
           body: JSON.stringify({
@@ -288,12 +287,14 @@
             count: Number(document.getElementById("genCount").value) || 1,
             email: document.getElementById("genEmail").value.trim(),
             customerName,
-            note: customerName
+            note: customerName,
+            password: password || undefined
           })
         });
         const created = data.accounts || [];
         setStatus(`Created ${created.length} account(s)`);
         document.getElementById("genEmail").value = "";
+        document.getElementById("genPassword").value = "";
         accessCreated.classList.remove("hidden");
         accessCreated.innerHTML = `
           <h3>Just created — send username &amp; password to customer</h3>
@@ -301,11 +302,11 @@
             .map(
               (a) => `
             <div class="access-created-row">
-              <strong>${escapeHtml(a.customerName || customerName)}</strong>
+              <strong>${escapeHtml(a.customerName || customerName || "—")}</strong>
               <code>${escapeHtml(a.username)}</code>
               <code>${escapeHtml(a.password)}</code>
               <span>${escapeHtml(a.planLabel)}${a.email ? ` · ${escapeHtml(a.email)}` : ""}</span>
-              <button type="button" class="admin-btn admin-btn-secondary admin-btn-sm" data-copy="Customer: ${escapeHtml(a.customerName || customerName)}\\nPlan username: ${escapeHtml(a.username)}\\nPlan password: ${escapeHtml(a.password)}\\nPlan: ${escapeHtml(a.planLabel)}">Copy</button>
+              <button type="button" class="admin-btn admin-btn-secondary admin-btn-sm" data-copy="Customer: ${escapeHtml(a.customerName || customerName || "—")}\\nPlan username: ${escapeHtml(a.username)}\\nPlan password: ${escapeHtml(a.password)}\\nPlan: ${escapeHtml(a.planLabel)}">Copy</button>
             </div>`
             )
             .join("")}

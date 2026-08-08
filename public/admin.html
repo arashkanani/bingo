@@ -217,8 +217,6 @@
           <td>${escapeHtml(formatRemaining(a.msRemaining))}</td>
           <td class="access-actions">
             ${actionBtns}
-            <button type="button" class="admin-btn admin-btn-secondary admin-btn-sm" data-action="logout" data-id="${escapeHtml(a.id)}">Kick</button>
-            <button type="button" class="admin-btn admin-btn-secondary admin-btn-sm" data-action="regenerate" data-id="${escapeHtml(a.id)}">New pass</button>
           </td>
         `;
         accountsBody.appendChild(tr);
@@ -362,15 +360,7 @@
           method: "POST",
           body: JSON.stringify({})
         });
-        setStatus(
-          action === "regenerate"
-            ? "New credentials created"
-            : action === "logout"
-              ? "Sessions ended"
-              : action === "disable"
-                ? "Account disabled"
-                : "Account enabled"
-        );
+        setStatus(action === "disable" ? "Account disabled" : "Account enabled");
         await refresh();
       } catch (err) {
         showErr(err.message || "Action failed");

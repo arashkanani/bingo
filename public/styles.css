@@ -219,7 +219,7 @@ input:focus {
   margin: 0.75rem 0 0;
 }
 
-/* —— Player profile / leaderboard —— */
+/* ?? Player profile / leaderboard ?? */
 .player-profile {
   display: flex;
   align-items: center;
@@ -358,7 +358,7 @@ input:focus {
   color: var(--muted);
 }
 
-/* —— Host layout —— */
+/* ?? Host layout ?? */
 .host-header {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -1434,7 +1434,7 @@ input:focus {
   font-weight: 700;
 }
 
-/* —— Mobile —— */
+/* ?? Mobile ?? */
 .mobile-body .page {
   max-width: 480px;
   margin: 0 auto;
@@ -1664,7 +1664,7 @@ input:focus {
 }
 
 .bingo-cell.callable {
-  /* disabled — never hint the called number on phone cards */
+  /* disabled ? never hint the called number on phone cards */
   cursor: pointer;
   box-shadow: none;
   animation: none;
@@ -1721,10 +1721,10 @@ input:focus {
   margin-top: 1.1rem;
 }
 
-/* ��� Account / Admin (SpotIt-style) ��� */
+/* ??? Account / Admin (SpotIt-style) ??? */
 
 
-/* ——— Account / sign-in page ——— */
+/* ??? Account / sign-in page ??? */
 body.account-body {
   background: var(--bg-deep);
   color: var(--cream);
@@ -1921,7 +1921,7 @@ body.account-body .bg-sparkle {
   text-decoration: underline;
 }
 
-/* ——— Admin dashboard ——— */
+/* ??? Admin dashboard ??? */
 body.admin-body {
   min-height: 100vh;
 }
@@ -2085,7 +2085,7 @@ body.admin-body {
   padding: 1.25rem 0.5rem !important;
 }
 
-/* ——— Circle size presets ——— */
+/* ??? Circle size presets ??? */
 html {
   --circle-scale: 1;
 }
@@ -2193,7 +2193,7 @@ html[data-circle-size="venue"] {
 .event-eyebrow { margin: 0; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold); }
 
 
-/* ��� Aqvarium-style Users & plans admin ��� */
+/* ??? Aqvarium-style Users & plans admin ??? */
 .admin-accounts { display: grid; gap: 1.15rem; width: 100%; }
 .admin-accounts-panel h2 { margin: 0 0 0.5rem; font-size: 1.15rem; color: var(--gold); }
 .admin-desc { margin: 0 0 1rem; color: var(--muted); font-size: 0.92rem; line-height: 1.45; }
@@ -2243,6 +2243,23 @@ html[data-circle-size="venue"] {
   background: none; border: none; color: var(--gold-bright); font: inherit; font-weight: 700;
   cursor: pointer; padding: 0; text-align: left;
 }
+.access-name-edit {
+  display: flex; align-items: center; gap: 0.35rem; flex-wrap: wrap;
+}
+.access-name-input {
+  width: 100%; min-width: 8rem; max-width: 12rem;
+  padding: 0.4rem 0.55rem; border-radius: 8px; border: 1px solid var(--gold);
+  background: rgba(0, 0, 0, 0.35); color: var(--cream); font: inherit; font-weight: 600;
+}
+.access-paid-field {
+  display: flex; align-items: center; gap: 0.45rem; font-weight: 600; color: var(--cream);
+  align-self: end; padding-bottom: 0.35rem; cursor: pointer; user-select: none;
+}
+.access-paid-field input,
+.access-paid-tick {
+  width: 1.15rem; height: 1.15rem; accent-color: var(--gold); cursor: pointer;
+}
+.access-paid-cell { text-align: center; }
 .access-pill {
   display: inline-block; padding: 0.2rem 0.5rem; border-radius: 999px; font-size: 0.75rem; font-weight: 700;
   background: rgba(255, 255, 255, 0.08);

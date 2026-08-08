@@ -772,7 +772,8 @@ app.post("/api/admin/access/accounts", authLib.requireAdmin, (req, res) => {
       req.body?.note,
       req.body?.email,
       req.body?.customerName,
-      req.body?.password
+      req.body?.password,
+      req.body?.paid
     );
     appendAudit({
       req,
@@ -795,6 +796,32 @@ app.post("/api/admin/access/accounts/:id/email", authLib.requireAdmin, (req, res
     res.json({ account });
   } catch (error) {
     res.status(400).json({ error: error.message || "Could not save email." });
+  }
+});
+
+app.post("/api/admin/access/accounts/:id/customer-name", authLib.requireAdmin, (req, res) => {
+  try {
+    const account = accessStore.setAccountCustomerName(req.params.id, req.body?.customerName);
+    if (!account) {
+      res.status(404).json({ error: "Account not found." });
+      return;
+    }
+    res.json({ account });
+  } catch (error) {
+    res.status(400).json({ error: error.message || "Could not save customer name." });
+  }
+});
+
+app.post("/api/admin/access/accounts/:id/paid", authLib.requireAdmin, (req, res) => {
+  try {
+    const account = accessStore.setAccountPaid(req.params.id, req.body?.paid);
+    if (!account) {
+      res.status(404).json({ error: "Account not found." });
+      return;
+    }
+    res.json({ account });
+  } catch (error) {
+    res.status(400).json({ error: error.message || "Could not save paid status." });
   }
 });
 

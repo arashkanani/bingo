@@ -74,6 +74,10 @@
             Password (optional)
             <input id="genPassword" type="text" maxlength="64" placeholder="Leave blank to auto-generate" autocomplete="off">
           </label>
+          <label class="access-paid-field">
+            <input id="genPaid" type="checkbox">
+            Paid
+          </label>
           <button type="button" class="admin-btn admin-btn-primary" id="genBtn">Generate plan code</button>
         </div>
 
@@ -92,6 +96,7 @@
                 <th>Customer</th>
                 <th>Username</th>
                 <th>Password</th>
+                <th>Paid</th>
                 <th>Date used</th>
                 <th>Plan</th>
                 <th>Status</th>
@@ -122,8 +127,8 @@
     const accountsEmpty = document.getElementById("accountsEmpty");
     const accessCreated = document.getElementById("accessCreated");
     const activityList = document.getElementById("activityList");
-    let expandedId = null;
     let busy = false;
+    let nameSaving = false;
 
     function showErr(msg) {
       if (!msg) {
@@ -147,10 +152,6 @@
       const hours = Math.floor(mins / 60);
       if (hours < 48) return `${hours}h`;
       return `${Math.floor(hours / 24)}d`;
-    }
-
-    function formatLocation(a) {
-      return [a.lastCity, a.lastRegion, a.lastCountry].filter(Boolean).join(", ") || "—";
     }
 
     async function requireAdminSession() {
@@ -197,15 +198,19 @@
         const actionBtns = a.disabled
           ? `<button type="button" class="admin-btn admin-btn-secondary admin-btn-sm" data-action="enable" data-id="${escapeHtml(a.id)}">Enable</button>`
           : `<button type="button" class="admin-btn admin-btn-danger admin-btn-sm" data-action="disable" data-id="${escapeHtml(a.id)}">Disable</button>`;
-        const customerName = a.customerName || a.note || "—";
+        const rawName = a.customerName || a.note || "";
+        const customerName = rawName || "—";
         const usedAt = a.lastLoginAt || a.firstLoginAt;
         const usedLabel = usedAt ? new Date(usedAt).toLocaleString() : "Not used yet";
         tr.innerHTML = `
           <td>
-            <button type="button" class="access-linkish" data-expand="${escapeHtml(a.id)}">${escapeHtml(customerName)}</button>
+            <button type="button" class="access-linkish" data-edit-name="${escapeHtml(a.id)}" data-name="${escapeHtml(rawName)}">${escapeHtml(customerName)}</button>
           </td>
           <td><code>${escapeHtml(a.username || "")}</code></td>
           <td><code>${escapeHtml(a.password || "")}</code></td>
+          <td class="access-paid-cell">
+            <input type="checkbox" class="access-paid-tick" data-paid-id="${escapeHtml(a.id)}" ${a.paid ? "checked" : ""} title="Mark as paid">
+          </td>
           <td title="${escapeHtml(usedAt || "")}">${escapeHtml(usedLabel)}</td>
           <td>${escapeHtml(a.planLabel || a.plan)}</td>
           <td><span class="access-pill ${escapeHtml(a.status)}">${escapeHtml(a.statusLabel || a.status)}</span></td>
@@ -217,33 +222,6 @@
           </td>
         `;
         accountsBody.appendChild(tr);
-
-        if (expandedId === a.id) {
-          const detail = document.createElement("tr");
-          detail.className = "access-logs-row";
-          const logs = (a.usageLogs || [])
-            .map((log) => {
-              const place = [log.city, log.region, log.country].filter(Boolean).join(", ") || "Unknown";
-              return `<li>${escapeHtml(new Date(log.at).toLocaleString())} — ${escapeHtml(place)} (${escapeHtml(log.ip || "no ip")})</li>`;
-            })
-            .join("");
-          detail.innerHTML = `
-            <td colspan="8">
-              <div class="access-logs">
-                <div>Customer: ${escapeHtml(customerName)}</div>
-                <div>Created: ${escapeHtml(new Date(a.createdAt).toLocaleString())}</div>
-                <div>Date used: ${escapeHtml(usedLabel)}</div>
-                <div>Expires: ${a.expiresAt ? escapeHtml(new Date(a.expiresAt).toLocaleString()) : "Starts on first login"}</div>
-                <div>Location: ${escapeHtml(formatLocation(a))}</div>
-                <div>Logins: ${escapeHtml(String(a.loginCount || 0))}</div>
-                <div>Spins / players: ${escapeHtml(String(a.rounds || "—"))} / ${escapeHtml(String(a.maxPlayers || "—"))}</div>
-                <h4>Recent logins</h4>
-                ${logs ? `<ul>${logs}</ul>` : "<p>No logins yet.</p>"}
-              </div>
-            </td>
-          `;
-          accountsBody.appendChild(detail);
-        }
       }
 
       const activity = sum.recentActivity || [];
@@ -275,16 +253,17 @@
             count: Number(document.getElementById("genCount").value) || 1,
             customerName,
             note: customerName,
-            password: password || undefined
+            password: password || undefined,
+            paid: document.getElementById("genPaid").checked
           })
         });
         const created = data.accounts || [];
         setStatus(`Created ${created.length} account(s)`);
         document.getElementById("genCustomerName").value = "";
         document.getElementById("genPassword").value = "";
+        document.getElementById("genPaid").checked = false;
         document.getElementById("adminHelpCopy")?.classList.add("hidden");
         document.getElementById("adminPageSub")?.classList.add("hidden");
-        expandedId = null;
         accessCreated.classList.add("hidden");
         accessCreated.innerHTML = "";
         await refresh();
@@ -307,12 +286,69 @@
       navigator.clipboard?.writeText(text).then(() => setStatus("Copied")).catch(() => {});
     });
 
-    accountsBody.addEventListener("click", async (ev) => {
-      const expand = ev.target.closest("[data-expand]");
-      if (expand) {
-        const id = expand.getAttribute("data-expand");
-        expandedId = expandedId === id ? null : id;
+    async function saveCustomerName(input) {
+      if (!input || nameSaving) return;
+      const id = input.getAttribute("data-name-id");
+      if (!id) return;
+      const customerName = input.value.trim();
+      nameSaving = true;
+      showErr("");
+      try {
+        await BingoAuth.apiFetch(`/api/admin/access/accounts/${encodeURIComponent(id)}/customer-name`, {
+          method: "POST",
+          body: JSON.stringify({ customerName })
+        });
+        setStatus("Customer name saved");
         await refresh();
+      } catch (err) {
+        showErr(err.message || "Could not save name");
+      } finally {
+        nameSaving = false;
+      }
+    }
+
+    accountsBody.addEventListener("change", async (ev) => {
+      const tick = ev.target.closest("[data-paid-id]");
+      if (!tick || busy) return;
+      const id = tick.getAttribute("data-paid-id");
+      busy = true;
+      try {
+        await BingoAuth.apiFetch(`/api/admin/access/accounts/${encodeURIComponent(id)}/paid`, {
+          method: "POST",
+          body: JSON.stringify({ paid: !!tick.checked })
+        });
+        setStatus(tick.checked ? "Marked as paid" : "Marked as unpaid");
+      } catch (err) {
+        tick.checked = !tick.checked;
+        showErr(err.message || "Could not save paid status");
+      } finally {
+        busy = false;
+      }
+    });
+
+    accountsBody.addEventListener("click", async (ev) => {
+      const saveNameBtn = ev.target.closest("[data-save-name]");
+      if (saveNameBtn) {
+        const wrap = saveNameBtn.closest(".access-name-edit");
+        const input = wrap?.querySelector("[data-name-id]");
+        if (input) await saveCustomerName(input);
+        return;
+      }
+
+      const editName = ev.target.closest("[data-edit-name]");
+      if (editName) {
+        const id = editName.getAttribute("data-edit-name");
+        const current = editName.getAttribute("data-name") || "";
+        const cell = editName.closest("td");
+        if (!cell || !id) return;
+        cell.innerHTML = `
+          <div class="access-name-edit">
+            <input type="text" class="access-name-input" data-name-id="${escapeHtml(id)}" maxlength="80" value="${escapeHtml(current)}" placeholder="Customer name">
+            <button type="button" class="admin-btn admin-btn-primary admin-btn-sm" data-save-name>Save</button>
+          </div>`;
+        const input = cell.querySelector("input");
+        input?.focus();
+        input?.select();
         return;
       }
 
@@ -340,6 +376,18 @@
         showErr(err.message || "Action failed");
       } finally {
         busy = false;
+      }
+    });
+
+    accountsBody.addEventListener("keydown", async (ev) => {
+      const input = ev.target.closest("[data-name-id]");
+      if (!input) return;
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        await saveCustomerName(input);
+      } else if (ev.key === "Escape") {
+        ev.preventDefault();
+        await refresh();
       }
     });
 

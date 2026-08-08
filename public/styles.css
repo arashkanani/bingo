@@ -2215,7 +2215,7 @@ html[data-circle-size="venue"] {
 .access-summary-grid strong { display: block; font-size: 1.35rem; color: var(--gold-bright); }
 .access-summary-grid span { font-size: 0.75rem; color: var(--muted); }
 .access-generate {
-  display: grid; grid-template-columns: 150px 90px 1fr auto; gap: 0.65rem; align-items: end;
+  display: grid; grid-template-columns: 140px 80px 1fr 1fr auto; gap: 0.65rem; align-items: end;
 }
 .access-generate label { display: grid; gap: 0.35rem; font-size: 0.82rem; font-weight: 600; color: var(--muted); }
 .access-generate input, .access-generate select {

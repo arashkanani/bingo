@@ -66,12 +66,12 @@
             <input id="genCount" type="number" min="1" max="50" value="1">
           </label>
           <label class="access-note-field">
-            Customer email (optional)
-            <input id="genEmail" type="email" placeholder="Leave blank for upgrade code">
+            Customer name
+            <input id="genCustomerName" type="text" maxlength="80" placeholder="Customer / company name" required>
           </label>
           <label class="access-note-field">
-            Note (optional)
-            <input id="genNote" type="text" maxlength="120" placeholder="Marketing team / Client name">
+            Customer email (optional)
+            <input id="genEmail" type="email" placeholder="Leave blank for upgrade code">
           </label>
           <button type="button" class="admin-btn admin-btn-primary" id="genBtn">Generate plan code</button>
         </div>
@@ -88,13 +88,13 @@
           <table class="access-table">
             <thead>
               <tr>
-                <th>Email</th>
+                <th>Customer</th>
+                <th>Username</th>
                 <th>Password</th>
+                <th>Date used</th>
                 <th>Plan</th>
                 <th>Status</th>
                 <th>Left</th>
-                <th>Location</th>
-                <th>Logins</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -197,18 +197,20 @@
         const actionBtns = a.disabled
           ? `<button type="button" class="admin-btn admin-btn-secondary admin-btn-sm" data-action="enable" data-id="${escapeHtml(a.id)}">Enable</button>`
           : `<button type="button" class="admin-btn admin-btn-danger admin-btn-sm" data-action="disable" data-id="${escapeHtml(a.id)}">Disable</button>`;
+        const customerName = a.customerName || a.note || "—";
+        const usedAt = a.lastLoginAt || a.firstLoginAt;
+        const usedLabel = usedAt ? new Date(usedAt).toLocaleString() : "Not used yet";
         tr.innerHTML = `
           <td>
-            <button type="button" class="access-linkish" data-expand="${escapeHtml(a.id)}">${escapeHtml(a.email || a.username)}</button>
-            ${a.note ? `<div class="access-note">${escapeHtml(a.note)}</div>` : ""}
-            ${!a.email ? `<div class="access-note">Upgrade code (username + password)</div>` : ""}
+            <button type="button" class="access-linkish" data-expand="${escapeHtml(a.id)}">${escapeHtml(customerName)}</button>
+            ${a.email ? `<div class="access-note">${escapeHtml(a.email)}</div>` : ""}
           </td>
+          <td><code>${escapeHtml(a.username || "")}</code></td>
           <td><code>${escapeHtml(a.password || "")}</code></td>
+          <td title="${escapeHtml(usedAt || "")}">${escapeHtml(usedLabel)}</td>
           <td>${escapeHtml(a.planLabel || a.plan)}</td>
           <td><span class="access-pill ${escapeHtml(a.status)}">${escapeHtml(a.statusLabel || a.status)}</span></td>
           <td>${escapeHtml(formatRemaining(a.msRemaining))}</td>
-          <td title="${escapeHtml(a.lastIp || "")}">${escapeHtml(formatLocation(a))}</td>
-          <td>${escapeHtml(String(a.loginCount || 0))}</td>
           <td class="access-actions">
             ${actionBtns}
             <button type="button" class="admin-btn admin-btn-secondary admin-btn-sm" data-action="logout" data-id="${escapeHtml(a.id)}">Kick</button>
@@ -236,10 +238,12 @@
                   </label>
                   <button type="button" class="admin-btn admin-btn-primary admin-btn-sm" data-save-email="${escapeHtml(a.id)}">Save email</button>
                 </div>
+                <div>Customer: ${escapeHtml(customerName)}</div>
                 <div>Created: ${escapeHtml(new Date(a.createdAt).toLocaleString())}</div>
+                <div>Date used: ${escapeHtml(usedLabel)}</div>
                 <div>Expires: ${a.expiresAt ? escapeHtml(new Date(a.expiresAt).toLocaleString()) : "Starts on first login"}</div>
-                <div>Last login: ${a.lastLoginAt ? escapeHtml(new Date(a.lastLoginAt).toLocaleString()) : "—"}</div>
-                <div>Username: ${escapeHtml(a.username)}</div>
+                <div>Location: ${escapeHtml(formatLocation(a))}</div>
+                <div>Logins: ${escapeHtml(String(a.loginCount || 0))}</div>
                 <div>Spins / players: ${escapeHtml(String(a.rounds || "—"))} / ${escapeHtml(String(a.maxPlayers || "—"))}</div>
                 <h4>Recent logins</h4>
                 ${logs ? `<ul>${logs}</ul>` : "<p>No logins yet.</p>"}
@@ -270,13 +274,21 @@
       busy = true;
       setStatus("Creating accounts…");
       try {
+        const customerName = document.getElementById("genCustomerName").value.trim();
+        if (!customerName) {
+          showErr("Enter the customer name.");
+          setStatus("");
+          busy = false;
+          return;
+        }
         const data = await BingoAuth.apiFetch("/api/admin/access/accounts", {
           method: "POST",
           body: JSON.stringify({
             plan: document.getElementById("genPlan").value,
             count: Number(document.getElementById("genCount").value) || 1,
             email: document.getElementById("genEmail").value.trim(),
-            note: document.getElementById("genNote").value.trim()
+            customerName,
+            note: customerName
           })
         });
         const created = data.accounts || [];
@@ -289,10 +301,11 @@
             .map(
               (a) => `
             <div class="access-created-row">
+              <strong>${escapeHtml(a.customerName || customerName)}</strong>
               <code>${escapeHtml(a.username)}</code>
               <code>${escapeHtml(a.password)}</code>
               <span>${escapeHtml(a.planLabel)}${a.email ? ` · ${escapeHtml(a.email)}` : ""}</span>
-              <button type="button" class="admin-btn admin-btn-secondary admin-btn-sm" data-copy="Plan username: ${escapeHtml(a.username)}\\nPlan password: ${escapeHtml(a.password)}\\nPlan: ${escapeHtml(a.planLabel)}">Copy</button>
+              <button type="button" class="admin-btn admin-btn-secondary admin-btn-sm" data-copy="Customer: ${escapeHtml(a.customerName || customerName)}\\nPlan username: ${escapeHtml(a.username)}\\nPlan password: ${escapeHtml(a.password)}\\nPlan: ${escapeHtml(a.planLabel)}">Copy</button>
             </div>`
             )
             .join("")}

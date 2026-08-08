@@ -770,7 +770,8 @@ app.post("/api/admin/access/accounts", authLib.requireAdmin, (req, res) => {
       req.body?.plan,
       req.body?.count,
       req.body?.note,
-      req.body?.email
+      req.body?.email,
+      req.body?.customerName
     );
     appendAudit({
       req,

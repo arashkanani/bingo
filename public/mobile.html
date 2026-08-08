@@ -70,7 +70,10 @@
   <script src="/socket.io/socket.io.js"></script>
   <script src="/player-ui.js"></script>
   <script>
-    const TOKEN_KEY = "bingo_player_token";
+    const roomCode = String(new URLSearchParams(window.location.search).get("room") || "")
+      .trim()
+      .toUpperCase();
+    const TOKEN_KEY = roomCode ? `bingo_player_token_${roomCode}` : "bingo_player_token";
     const socket = io({ transports: ["websocket", "polling"] });
 
     const joinCard = document.getElementById("joinCard");
@@ -93,6 +96,14 @@
     const mobileChampionHero = document.getElementById("mobileChampionHero");
     const mobileChampionStatus = document.getElementById("mobileChampionStatus");
 
+    if (!roomCode) {
+      joinMessage.textContent = "Scan the host QR code to join a room.";
+      joinBtn.disabled = true;
+      if (mobileJoinTitle) mobileJoinTitle.textContent = "NEED HOST QR";
+    } else if (mobileJoinTitle) {
+      mobileJoinTitle.textContent = `JOIN ${roomCode}`;
+    }
+
     let joined = false;
     let myProfile = null;
     let photoDataUrl = "";
@@ -112,7 +123,12 @@
     }
 
     function updateJoinButtonState() {
-      joinBtn.disabled = !(nameInput.value.trim() && photoDataUrl && selectedCountryCode);
+      joinBtn.disabled = !(
+        roomCode &&
+        nameInput.value.trim() &&
+        photoDataUrl &&
+        selectedCountryCode
+      );
     }
 
     function filterCountries(query) {
@@ -233,7 +249,9 @@
       countryChosen.classList.add("hidden");
       countryChosen.innerHTML = "";
       countrySearch.value = "";
-      joinMessage.textContent = "Scan the QR on the big screen, then fill in your details.";
+      joinMessage.textContent = roomCode
+        ? "Scan the QR on the big screen, then fill in your details."
+        : "Scan the host QR code to join a room.";
       updateJoinButtonState();
     }
 
@@ -319,6 +337,10 @@
     }
 
     joinBtn.addEventListener("click", () => {
+      if (!roomCode) {
+        joinMessage.textContent = "Scan the host QR code to join a room.";
+        return;
+      }
       const name = nameInput.value.trim();
       if (!name || !photoDataUrl || !selectedCountryCode) {
         joinMessage.textContent = "Please search and pick your country from the list.";
@@ -327,6 +349,7 @@
       joinBtn.disabled = true;
       joinMessage.textContent = "Joining…";
       socket.emit("joinPlayer", {
+        room: roomCode,
         name,
         photo: photoDataUrl,
         countryCode: selectedCountryCode
@@ -334,9 +357,10 @@
     });
 
     socket.on("connect", () => {
+      if (!roomCode || joined) return;
       const token = localStorage.getItem(TOKEN_KEY);
-      if (token && !joined) {
-        socket.emit("joinPlayer", { playerToken: token });
+      if (token) {
+        socket.emit("joinPlayer", { room: roomCode, playerToken: token });
       }
     });
 

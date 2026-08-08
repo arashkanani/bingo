@@ -383,29 +383,45 @@
     buildPrizeWheel();
     window.addEventListener("resize", layoutWheelLabels);
 
+    let hostRoomCode = null;
+
     function setJoinLink(url) {
       playerJoinUrl.textContent = url;
       qrImage.src = `/api/qr?url=${encodeURIComponent(url)}`;
     }
 
-    fetch("/api/join-info")
-      .then((r) => r.json())
-      .then((info) => {
-        // Prefer LAN URL so phones can reach this PC (localhost only works on the host).
-        const url =
-          info.primaryPlayerUrl ||
-          info.lanUrls?.[0] ||
-          info.playerUrls?.find((u) => !/localhost|127\.0\.0\.1/i.test(u)) ||
-          info.playerUrls?.[0];
-        if (url) setJoinLink(url);
-        if (/localhost|127\.0\.0\.1/i.test(url || "")) {
-          lobbyStatus.textContent =
-            "No Wi‑Fi IP found — connect this PC to Wi‑Fi, then refresh. Phones cannot open localhost.";
-        }
-      })
-      .catch(() => {
-        lobbyStatus.textContent = "Could not load join link.";
-      });
+    function refreshJoinLink() {
+      fetch("/api/join-info")
+        .then((r) => r.json())
+        .then((info) => {
+          if (info.room) hostRoomCode = info.room;
+          // Prefer LAN URL so phones can reach this PC (localhost only works on the host).
+          const url =
+            info.primaryPlayerUrl ||
+            info.lanUrls?.[0] ||
+            info.playerUrls?.find((u) => !/localhost|127\.0\.0\.1/i.test(u)) ||
+            info.playerUrls?.[0];
+          if (url) setJoinLink(url);
+          if (/localhost|127\.0\.0\.1/i.test(url || "")) {
+            lobbyStatus.textContent =
+              "No Wi‑Fi IP found — connect this PC to Wi‑Fi, then refresh. Phones cannot open localhost.";
+          } else if (hostRoomCode && lobbyStatus.textContent === "Waiting for players…") {
+            lobbyStatus.textContent = `Room ${hostRoomCode} — waiting for players…`;
+          }
+        })
+        .catch(() => {
+          lobbyStatus.textContent = "Could not load join link.";
+        });
+    }
+
+    refreshJoinLink();
+
+    socket.on("hostRoom", ({ room }) => {
+      if (room) {
+        hostRoomCode = room;
+        refreshJoinLink();
+      }
+    });
 
     function cachePhotos(list) {
       for (const p of list || []) {

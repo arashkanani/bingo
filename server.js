@@ -38,9 +38,6 @@ const io = new Server(server, {
 
 attachSocketAuthMiddleware(io);
 
-const DEMO_SUSPEND_MESSAGE =
-  "Demo access is temporarily paused while a real game is running. Please try again later.";
-
 function appendAudit({ userId, email, req, type, meta }) {
   userStore.appendActivity({
     userId: userId ?? req?.user?.id ?? null,
@@ -177,7 +174,7 @@ function generateBingoCard(rows, cols) {
 }
 
 function letterForNumber(n, cols) {
-  const c = cols || game.cardCols || DEFAULT_CARD_COLS;
+  const c = cols || DEFAULT_CARD_COLS;
   for (let i = 0; i < c; i += 1) {
     const [min, max] = columnRange(i, c);
     if (n >= min && n <= max) {
@@ -221,25 +218,25 @@ function totalMarkedOnCard(card, marked) {
   return total;
 }
 
-function computePlayerScore(player) {
+function computePlayerScore(room, player) {
   if (!player?.card) return 0;
-  if (game.firstBingoAchieved) {
+  if (room.game.firstBingoAchieved) {
     return totalMarkedOnCard(player.card, player.marked);
   }
   return bestRowMarkedCount(player.card, player.marked);
 }
 
-function refreshAllPlayerScores() {
-  for (const player of players.values()) {
+function refreshAllPlayerScores(room) {
+  for (const player of room.players.values()) {
     player.completedRows = player.card
       ? countCompletedRows(player.card, player.marked)
       : 0;
-    player.score = computePlayerScore(player);
+    player.score = computePlayerScore(room, player);
   }
 }
 
-function rankingUnit() {
-  return game.firstBingoAchieved ? "cells" : "in row";
+function rankingUnit(room) {
+  return room.game.firstBingoAchieved ? "cells" : "in row";
 }
 
 function normalizeEventTitle(value) {
@@ -285,30 +282,159 @@ function createNewGame(settings = {}) {
   };
 }
 
-const players = new Map();
-const socketToPlayerId = new Map();
-let game = createNewGame();
-let dashboardCodeId = null;
-let activeGameCodeId = null;
+const ROOM_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const ROOM_IDLE_TTL_MS = 2 * 60 * 60 * 1000;
+/** @type {Map<string, object>} */
+const rooms = new Map();
+/** Paid account id → room code (one active lobby per paid account). */
+const accountRooms = new Map();
+/** Access session token → room code (guest demos get one room per session). */
+const sessionRooms = new Map();
 
-function currentDashboardCode() {
-  const id = activeGameCodeId || dashboardCodeId;
-  if (!id) return null;
-  const account = accessStore.findAccountById(id);
-  return account ? accessStore.publicAccount(account) : null;
+function normalizeRoomCode(value) {
+  return String(value || "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .slice(0, 12);
 }
 
+function makeRoomCode() {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    let code = "";
+    const bytes = crypto.randomBytes(6);
+    for (let i = 0; i < 6; i += 1) {
+      code += ROOM_CODE_ALPHABET[bytes[i] % ROOM_CODE_ALPHABET.length];
+    }
+    if (!rooms.has(code)) return code;
+  }
+  return crypto.randomBytes(4).toString("hex").toUpperCase();
+}
+
+function getRoom(code) {
+  const normalized = normalizeRoomCode(code);
+  if (!normalized) return null;
+  return rooms.get(normalized) || null;
+}
+
+function touchRoom(room) {
+  if (room) room.lastActiveAt = Date.now();
+}
+
+function createRoom({ ownerAccountId, ownerSessionToken = null, guest = false }) {
+  const code = makeRoomCode();
+  const room = {
+    code,
+    ownerAccountId,
+    ownerSessionToken: ownerSessionToken || null,
+    guest: !!guest,
+    game: createNewGame(),
+    players: new Map(),
+    socketToPlayerId: new Map(),
+    createdAt: Date.now(),
+    lastActiveAt: Date.now()
+  };
+  rooms.set(code, room);
+  if (ownerSessionToken) sessionRooms.set(ownerSessionToken, code);
+  if (!guest && ownerAccountId) accountRooms.set(ownerAccountId, code);
+  return room;
+}
+
+function destroyRoom(room) {
+  if (!room) return;
+  clearAutoDraw(room);
+  if (room.ownerSessionToken && sessionRooms.get(room.ownerSessionToken) === room.code) {
+    sessionRooms.delete(room.ownerSessionToken);
+  }
+  if (!room.guest && room.ownerAccountId && accountRooms.get(room.ownerAccountId) === room.code) {
+    accountRooms.delete(room.ownerAccountId);
+  }
+  rooms.delete(room.code);
+}
+
+function ensureRoomForAccess(access) {
+  if (!access?.code?.id || !access?.token) return null;
+  const accountId = access.code.id;
+  const isGuest = !!access.code.guest;
+  const sessionToken = access.token;
+
+  let room = null;
+  if (isGuest) {
+    const existingCode = sessionRooms.get(sessionToken);
+    room = existingCode ? rooms.get(existingCode) : null;
+    if (!room) {
+      room = createRoom({
+        ownerAccountId: accountId,
+        ownerSessionToken: sessionToken,
+        guest: true
+      });
+    }
+  } else {
+    const existingCode = accountRooms.get(accountId);
+    room = existingCode ? rooms.get(existingCode) : null;
+    if (!room) {
+      room = createRoom({
+        ownerAccountId: accountId,
+        ownerSessionToken: sessionToken,
+        guest: false
+      });
+    } else if (sessionToken) {
+      sessionRooms.set(sessionToken, room.code);
+      room.ownerSessionToken = sessionToken;
+    }
+  }
+  touchRoom(room);
+  return room;
+}
+
+function ensureHostRoom(socket) {
+  const access = socket.data.accessSession;
+  if (!access?.code?.id) return null;
+  const room = ensureRoomForAccess(access);
+  if (!room) return null;
+  if (socket.data.roomCode && socket.data.roomCode !== room.code) {
+    socket.leave(socket.data.roomCode);
+  }
+  socket.join(room.code);
+  socket.data.roomCode = room.code;
+  socket.data.isHost = true;
+  return room;
+}
+
+function socketRoom(socket) {
+  return getRoom(socket.data.roomCode);
+}
+
+function isRoomHost(socket, room) {
+  if (!socket?.data?.accessSession?.code?.id || !room) return false;
+  return socket.data.accessSession.code.id === room.ownerAccountId;
+}
+
+/** Multi-tenant: rooms are independent — no global demo lock. */
 function isPaidGameRunning() {
-  const code = currentDashboardCode();
-  const paid = code && code.plan && code.plan !== "demo";
-  return Boolean(game.started && !game.ended && paid);
+  return false;
 }
 
-function effectiveMaxPlayers() {
-  const code = currentDashboardCode();
-  if (!code?.maxPlayers) return MAX_PLAYERS;
-  return Math.min(MAX_PLAYERS, Number(code.maxPlayers) || MAX_PLAYERS);
+function effectiveMaxPlayers(room) {
+  const account = accessStore.findAccountById(room?.ownerAccountId);
+  const pub = account ? accessStore.publicAccount(account) : null;
+  if (!pub?.maxPlayers) return MAX_PLAYERS;
+  return Math.min(MAX_PLAYERS, Number(pub.maxPlayers) || MAX_PLAYERS);
 }
+
+function finishRoomsForAccount(accountId, reason = "admin") {
+  for (const room of [...rooms.values()]) {
+    if (room.ownerAccountId !== accountId) continue;
+    if (room.game.started && !room.game.ended) finishGame(room, reason);
+  }
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const room of [...rooms.values()]) {
+    if (now - room.lastActiveAt > ROOM_IDLE_TTL_MS) destroyRoom(room);
+  }
+}, 10 * 60 * 1000).unref?.();
 
 function getPublicBaseUrl(req) {
   if (PUBLIC_URL) return PUBLIC_URL;
@@ -335,21 +461,23 @@ function normalizePhoto(photo) {
   return value;
 }
 
-function findPlayerByToken(token) {
-  if (!token) return null;
-  for (const player of players.values()) {
+function findPlayerByToken(room, token) {
+  if (!room || !token) return null;
+  for (const player of room.players.values()) {
     if (player.token === token) return player;
   }
   return null;
 }
 
-function bindSocketToPlayer(socket, player) {
+function bindSocketToPlayer(room, socket, player) {
   if (player.socketId && player.socketId !== socket.id) {
-    socketToPlayerId.delete(player.socketId);
+    room.socketToPlayerId.delete(player.socketId);
   }
   player.socketId = socket.id;
-  socketToPlayerId.set(socket.id, player.id);
+  room.socketToPlayerId.set(socket.id, player.id);
   socket.data.playerId = player.id;
+  socket.data.roomCode = room.code;
+  socket.join(room.code);
 }
 
 function toLeaderboardEntry(player, { includePhoto = false } = {}) {
@@ -366,8 +494,8 @@ function toLeaderboardEntry(player, { includePhoto = false } = {}) {
   return entry;
 }
 
-function getLeaderboard({ includePhoto = false } = {}) {
-  return [...players.values()]
+function getLeaderboard(room, { includePhoto = false } = {}) {
+  return [...room.players.values()]
     .map((p) => toLeaderboardEntry(p, { includePhoto }))
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
@@ -379,9 +507,17 @@ function getLeaderboard({ includePhoto = false } = {}) {
     });
 }
 
-function buildGameStatePayload() {
+function drawsRemainingInPlan(room) {
+  const game = room.game;
+  if (!game.maxDrawNumbers) return null;
+  return Math.max(0, Number(game.maxDrawNumbers) - game.calledNumbers.length);
+}
+
+function buildGameStatePayload(room) {
+  const game = room.game;
   const registrationOpen = !game.started || game.ended;
   return {
+    room: room.code,
     started: game.started,
     ended: game.ended,
     cardRows: game.cardRows,
@@ -396,19 +532,19 @@ function buildGameStatePayload() {
     autoDrawMs: game.autoDrawMs,
     winRows: game.winRows,
     maxDrawNumbers: game.maxDrawNumbers || null,
-    planDrawsLeft: drawsRemainingInPlan(),
+    planDrawsLeft: drawsRemainingInPlan(room),
     planTier: game.planTier || null,
     firstBingoAchieved: !!game.firstBingoAchieved,
     rankingPhase: game.firstBingoAchieved ? "grid" : "row",
-    rankingUnit: rankingUnit(),
+    rankingUnit: rankingUnit(room),
     firstLevelChampion: (() => {
       if (!game.firstBingoPlayerId) return null;
-      const champ = players.get(game.firstBingoPlayerId);
+      const champ = room.players.get(game.firstBingoPlayerId);
       return champ ? toLeaderboardEntry(champ, { includePhoto: true }) : null;
     })(),
-    playerCount: players.size,
+    playerCount: room.players.size,
     registrationOpen,
-    playerCap: effectiveMaxPlayers(),
+    playerCap: effectiveMaxPlayers(room),
     eventTitle: game.eventTitle || "",
     settings: {
       cardRows: game.cardRows,
@@ -422,64 +558,67 @@ function buildGameStatePayload() {
       defaultRows: DEFAULT_CARD_ROWS,
       defaultCols: DEFAULT_CARD_COLS
     },
-    leaderboard: getLeaderboard({ includePhoto: game.ended })
+    leaderboard: getLeaderboard(room, { includePhoto: game.ended })
   };
 }
 
-function emitGameState() {
-  io.emit("gameState", buildGameStatePayload());
+function emitToRoom(room, event, payload) {
+  if (!room) return;
+  touchRoom(room);
+  io.to(room.code).emit(event, payload);
 }
 
-function emitPlayerJoined(player) {
-  io.emit("playerJoined", toLeaderboardEntry(player, { includePhoto: true }));
+function emitGameState(room) {
+  emitToRoom(room, "gameState", buildGameStatePayload(room));
 }
 
-function clearAutoDraw() {
-  if (game.autoDrawTimer) {
-    clearTimeout(game.autoDrawTimer);
-    game.autoDrawTimer = null;
+function emitPlayerJoined(room, player) {
+  emitToRoom(room, "playerJoined", toLeaderboardEntry(player, { includePhoto: true }));
+}
+
+function clearAutoDraw(room) {
+  if (room?.game?.autoDrawTimer) {
+    clearTimeout(room.game.autoDrawTimer);
+    room.game.autoDrawTimer = null;
   }
 }
 
-function scheduleAutoDraw() {
-  clearAutoDraw();
+function scheduleAutoDraw(room) {
+  clearAutoDraw(room);
+  const game = room.game;
   if (!game.autoDraw || !game.started || game.ended) return;
   game.autoDrawTimer = setTimeout(() => {
-    drawNextNumber();
+    drawNextNumber(room);
   }, game.autoDrawMs);
 }
 
-function finishGame(reason) {
+function finishGame(room, reason) {
+  const game = room.game;
   if (game.ended) return;
   game.ended = true;
   game.autoDraw = false;
-  clearAutoDraw();
-  activeGameCodeId = null;
-  const leaderboard = getLeaderboard({ includePhoto: true });
-  io.emit("gameOver", { leaderboard, reason: reason || "ended" });
-  emitGameState();
+  clearAutoDraw(room);
+  const leaderboard = getLeaderboard(room, { includePhoto: true });
+  emitToRoom(room, "gameOver", { leaderboard, reason: reason || "ended" });
+  emitGameState(room);
 }
 
-function drawsRemainingInPlan() {
-  if (!game.maxDrawNumbers) return null;
-  return Math.max(0, Number(game.maxDrawNumbers) - game.calledNumbers.length);
-}
-
-function drawNextNumber() {
+function drawNextNumber(room) {
+  const game = room.game;
   if (!game.started || game.ended) return null;
   if (!game.remainingNumbers.length) {
-    finishGame("all_numbers");
+    finishGame(room, "all_numbers");
     return null;
   }
   if (game.maxDrawNumbers && game.calledNumbers.length >= game.maxDrawNumbers) {
-    clearAutoDraw();
-    io.emit("drawLimitReached", {
+    clearAutoDraw(room);
+    emitToRoom(room, "drawLimitReached", {
       maxDrawNumbers: game.maxDrawNumbers,
       planTier: game.planTier || "demo",
       message:
         "Demo limit reached (15 numbers). Upgrade your plan to spin the full game."
     });
-    emitGameState();
+    emitGameState(room);
     return null;
   }
 
@@ -490,8 +629,8 @@ function drawNextNumber() {
   game.calledNumbers.push(number);
   game.drawSequence += 1;
 
-  const planDrawsLeft = drawsRemainingInPlan();
-  io.emit("numberDrawn", {
+  const planDrawsLeft = drawsRemainingInPlan(room);
+  emitToRoom(room, "numberDrawn", {
     number,
     letter,
     drawSequence: game.drawSequence,
@@ -499,39 +638,39 @@ function drawNextNumber() {
     remainingCount: game.remainingNumbers.length,
     planDrawsLeft
   });
-  emitGameState();
+  emitGameState(room);
 
   if (game.maxDrawNumbers && game.calledNumbers.length >= game.maxDrawNumbers) {
-    clearAutoDraw();
-    io.emit("drawLimitReached", {
+    clearAutoDraw(room);
+    emitToRoom(room, "drawLimitReached", {
       maxDrawNumbers: game.maxDrawNumbers,
       planTier: game.planTier || "demo",
       message:
         "Demo limit reached (15 numbers). Upgrade your plan to spin the full game."
     });
   } else {
-    scheduleAutoDraw();
+    scheduleAutoDraw(room);
   }
   return number;
 }
 
-function resetLobby() {
-  clearAutoDraw();
-  const keptTitle = game.eventTitle;
-  for (const player of players.values()) {
+function resetLobby(room) {
+  clearAutoDraw(room);
+  const keptTitle = room.game.eventTitle;
+  for (const player of room.players.values()) {
     if (player.socketId) {
       const sock = io.sockets.sockets.get(player.socketId);
       if (sock) sock.emit("sessionReset");
     }
   }
-  players.clear();
-  socketToPlayerId.clear();
-  game = createNewGame({ eventTitle: keptTitle });
-  io.emit("lobbyCleared");
-  emitGameState();
+  room.players.clear();
+  room.socketToPlayerId.clear();
+  room.game = createNewGame({ eventTitle: keptTitle });
+  emitToRoom(room, "lobbyCleared");
+  emitGameState(room);
 }
 
-function startGame({
+function startGame(room, {
   autoDraw = true,
   autoDrawMs = 15000,
   cardRows,
@@ -541,10 +680,10 @@ function startGame({
   maxDrawNumbers = null,
   planTier = "demo"
 } = {}) {
-  clearAutoDraw();
+  clearAutoDraw(room);
   const title =
-    eventTitle !== undefined ? normalizeEventTitle(eventTitle) : game.eventTitle;
-  game = createNewGame({
+    eventTitle !== undefined ? normalizeEventTitle(eventTitle) : room.game.eventTitle;
+  room.game = createNewGame({
     cardRows,
     cardCols,
     winRows,
@@ -552,34 +691,34 @@ function startGame({
     maxDrawNumbers,
     planTier
   });
-  game.started = true;
-  game.autoDrawMs = Math.max(10000, Number(autoDrawMs) || 15000);
-  game.autoDraw = !!autoDraw;
+  room.game.started = true;
+  room.game.autoDrawMs = Math.max(10000, Number(autoDrawMs) || 15000);
+  room.game.autoDraw = !!autoDraw;
 
-  for (const player of players.values()) {
-    player.card = generateBingoCard(game.cardRows, game.cardCols);
+  for (const player of room.players.values()) {
+    player.card = generateBingoCard(room.game.cardRows, room.game.cardCols);
     player.marked = new Set();
     player.completedRows = 0;
     player.score = 0;
   }
 
-  emitGameState();
+  emitGameState(room);
 
-  for (const player of players.values()) {
+  for (const player of room.players.values()) {
     if (!player.socketId) continue;
     const sock = io.sockets.sockets.get(player.socketId);
     if (sock) {
       sock.emit("cardDealt", {
         card: player.card,
         marked: [...player.marked],
-        cardRows: game.cardRows,
-        cardCols: game.cardCols
+        cardRows: room.game.cardRows,
+        cardCols: room.game.cardCols
       });
     }
   }
 
   // First number after a short beat so phones can show cards.
-  setTimeout(() => drawNextNumber(), 1800);
+  setTimeout(() => drawNextNumber(room), 1800);
 }
 
 app.get("/dashboard-access", (_req, res) => {
@@ -600,7 +739,6 @@ app.get("/", (req, res) => {
     const session = accessStore.createGuestDemoSession();
     if (session?.token) {
       res.cookie(accessStore.ACCESS_COOKIE, session.token, accessCookieOptions());
-      dashboardCodeId = session.account?.id || accessStore.GUEST_DEMO_ID;
     }
   }
   res.sendFile(path.join(publicDir, "host.html"));
@@ -711,10 +849,6 @@ app.post("/api/access/login", async (req, res) => {
     res.status(403).json({ error: "This plan is expired or disabled." });
     return;
   }
-  if (account.plan === "demo" && !account.guest && isPaidGameRunning()) {
-    res.status(403).json({ error: DEMO_SUSPEND_MESSAGE, reason: "demo_suspended" });
-    return;
-  }
   const geo = await accessStore.lookupGeo(accessStore.getClientIp(req));
   accessStore.recordLogin(account.id, geo);
   const session = accessStore.createSession(account.id);
@@ -722,9 +856,18 @@ app.post("/api/access/login", async (req, res) => {
     res.status(400).json({ error: "Could not create dashboard session." });
     return;
   }
-  dashboardCodeId = account.id;
+  const accessBundle = {
+    token: session.token,
+    code: accessStore.publicAccount(account),
+    account: accessStore.publicAccount(account),
+    expiresAt: session.expiresAt
+  };
+  const room = ensureRoomForAccess(accessBundle);
   res.cookie(accessStore.ACCESS_COOKIE, session.token, accessCookieOptions());
-  res.json({ access: accessStore.publicAccount(account) });
+  res.json({
+    access: accessBundle.code,
+    room: room?.code || null
+  });
 });
 
 app.post("/api/access/logout", (req, res) => {
@@ -831,11 +974,7 @@ app.post("/api/admin/access/accounts/:id/disable", authLib.requireAdmin, (req, r
     res.status(404).json({ error: "Account not found." });
     return;
   }
-  if (dashboardCodeId === req.params.id) dashboardCodeId = null;
-  if (activeGameCodeId === req.params.id) {
-    activeGameCodeId = null;
-    if (game.started && !game.ended) finishGame("admin");
-  }
+  finishRoomsForAccount(req.params.id, "admin");
   res.json({ account });
 });
 
@@ -854,13 +993,12 @@ app.post("/api/admin/access/accounts/:id/regenerate", authLib.requireAdmin, (req
     res.status(404).json({ error: "Account not found." });
     return;
   }
-  if (dashboardCodeId === req.params.id) dashboardCodeId = null;
+  finishRoomsForAccount(req.params.id, "admin");
   res.json(result);
 });
 
 app.post("/api/admin/access/accounts/:id/logout", authLib.requireAdmin, (req, res) => {
   const result = accessStore.forceLogoutAccount(req.params.id);
-  if (dashboardCodeId === req.params.id) dashboardCodeId = null;
   res.json({ ok: true, clearedSessions: result.removed || 0 });
 });
 
@@ -873,15 +1011,18 @@ app.get("/api/countries", (_req, res) => {
 
 app.get("/api/join-info", (req, res) => {
   const base = getPublicBaseUrl(req);
-  const localPlayerUrl = `${base}/mobile`;
+  const room = req.dashboardAccess ? ensureRoomForAccess(req.dashboardAccess) : null;
+  const roomQuery = room?.code ? `?room=${encodeURIComponent(room.code)}` : "";
+  const localPlayerUrl = `${base}/mobile${roomQuery}`;
   const lanAddresses = getLanAddresses();
-  const lanUrls = lanAddresses.map((address) => `http://${address}:${PORT}/mobile`);
+  const lanUrls = lanAddresses.map(
+    (address) => `http://${address}:${PORT}/mobile${roomQuery}`
+  );
 
   // Phones cannot open localhost — prefer a LAN IP for the QR code.
-  const primaryPlayerUrl =
-    PUBLIC_URL
-      ? `${PUBLIC_URL}/mobile`
-      : lanUrls[0] || localPlayerUrl;
+  const primaryPlayerUrl = PUBLIC_URL
+    ? `${PUBLIC_URL.replace(/\/$/, "")}/mobile${roomQuery}`
+    : lanUrls[0] || localPlayerUrl;
 
   const playerUrls = PUBLIC_URL
     ? [primaryPlayerUrl, ...lanUrls.filter((u) => u !== primaryPlayerUrl)]
@@ -889,6 +1030,7 @@ app.get("/api/join-info", (req, res) => {
 
   res.json({
     port: PORT,
+    room: room?.code || null,
     playerUrls,
     primaryPlayerUrl,
     lanUrls,
@@ -917,32 +1059,63 @@ app.get("/api/qr", async (req, res, next) => {
   }
 });
 
-io.on("connection", (socket) => {
-  socket.emit("gameState", buildGameStatePayload());
-  const lobbyPlayers = [...players.values()].map((player) =>
-    toLeaderboardEntry(player, { includePhoto: true })
-  );
-  if (lobbyPlayers.length) {
-    socket.emit("lobbySnapshot", { players: lobbyPlayers });
+function requireHostRoom(socket) {
+  const room = ensureHostRoom(socket) || socketRoom(socket);
+  if (!room) {
+    socket.emit("hostError", {
+      message: "Dashboard access required. Sign in with your plan username and password."
+    });
+    return null;
   }
+  if (!isRoomHost(socket, room)) {
+    socket.emit("hostError", { message: "Only this room’s host can control the game." });
+    return null;
+  }
+  return room;
+}
 
-  const existingId = socketToPlayerId.get(socket.id);
-  if (existingId) {
-    const player = players.get(existingId);
-    if (player?.card) {
-      socket.emit("cardDealt", {
-        card: player.card,
-        marked: [...player.marked],
-        cardRows: game.cardRows,
-        cardCols: game.cardCols
-      });
+io.on("connection", (socket) => {
+  const hostRoom = ensureHostRoom(socket);
+  if (hostRoom) {
+    socket.emit("hostRoom", {
+      room: hostRoom.code,
+      playerCount: hostRoom.players.size
+    });
+    socket.emit("gameState", buildGameStatePayload(hostRoom));
+    const lobbyPlayers = [...hostRoom.players.values()].map((player) =>
+      toLeaderboardEntry(player, { includePhoto: true })
+    );
+    if (lobbyPlayers.length) {
+      socket.emit("lobbySnapshot", { players: lobbyPlayers });
     }
   }
 
+  socket.on("hostEnsureRoom", () => {
+    const room = ensureHostRoom(socket);
+    if (!room) {
+      socket.emit("hostError", {
+        message: "Dashboard access required. Sign in with your plan username and password."
+      });
+      return;
+    }
+    socket.emit("hostRoom", { room: room.code, playerCount: room.players.size });
+    socket.emit("gameState", buildGameStatePayload(room));
+  });
+
   socket.on("joinPlayer", (payload) => {
+    const roomCode = payload?.room || socket.data.roomCode;
+    const room = getRoom(roomCode);
+    if (!room) {
+      socket.emit("joinError", {
+        message: "Scan the host QR code to join a room."
+      });
+      return;
+    }
+
     const playerToken = String(payload?.playerToken || "").trim();
     const rawName = String(payload?.name || "").trim();
-    const existing = findPlayerByToken(playerToken);
+    const existing = findPlayerByToken(room, playerToken);
+    const game = room.game;
     const registrationOpen = !game.started || game.ended;
 
     if (!registrationOpen && !existing) {
@@ -964,10 +1137,12 @@ io.on("connection", (socket) => {
           oldSocket.disconnect(true);
         }
       }
-      bindSocketToPlayer(socket, existing);
+      bindSocketToPlayer(room, socket, existing);
+      touchRoom(room);
       socket.emit("joined", {
         id: existing.id,
         token: existing.token,
+        room: room.code,
         name: existing.name,
         countryCode: existing.countryCode,
         countryName: existing.countryName,
@@ -982,12 +1157,12 @@ io.on("connection", (socket) => {
           cardCols: game.cardCols
         });
       }
-      emitGameState();
+      emitGameState(room);
       return;
     }
 
-    const cap = effectiveMaxPlayers();
-    if (players.size >= cap) {
+    const cap = effectiveMaxPlayers(room);
+    if (room.players.size >= cap) {
       socket.emit("joinError", {
         message: `Game is full (${cap} players max).`
       });
@@ -1024,28 +1199,35 @@ io.on("connection", (socket) => {
       card: null,
       marked: new Set()
     };
-    players.set(player.id, player);
-    const hostAccountId = activeGameCodeId || dashboardCodeId;
-    if (hostAccountId) {
-      accessStore.recordPlayerCount(hostAccountId, players.size);
+    room.players.set(player.id, player);
+    if (room.ownerAccountId) {
+      accessStore.recordPlayerCount(room.ownerAccountId, room.players.size);
     }
-    bindSocketToPlayer(socket, player);
+    bindSocketToPlayer(room, socket, player);
+    touchRoom(room);
     socket.emit("joined", {
       id: player.id,
       token: player.token,
+      room: room.code,
       name,
       countryCode,
       countryName,
       photo,
       score: 0
     });
-    emitPlayerJoined(player);
-    emitGameState();
+    emitPlayerJoined(room, player);
+    emitGameState(room);
   });
 
   socket.on("markNumber", (payload) => {
-    const playerId = socketToPlayerId.get(socket.id);
-    const player = playerId ? players.get(playerId) : null;
+    const room = socketRoom(socket);
+    if (!room) {
+      socket.emit("markResult", { ok: false, message: "Cannot mark now." });
+      return;
+    }
+    const game = room.game;
+    const playerId = room.socketToPlayerId.get(socket.id);
+    const player = playerId ? room.players.get(playerId) : null;
     if (!player || !game.started || game.ended) {
       socket.emit("markResult", { ok: false, message: "Cannot mark now." });
       return;
@@ -1074,7 +1256,12 @@ io.on("connection", (socket) => {
     }
 
     if (player.marked.has(number)) {
-      socket.emit("markResult", { ok: true, already: true, score: player.score, marked: [...player.marked] });
+      socket.emit("markResult", {
+        ok: true,
+        already: true,
+        score: player.score,
+        marked: [...player.marked]
+      });
       return;
     }
 
@@ -1086,17 +1273,17 @@ io.on("connection", (socket) => {
       game.firstBingoAchieved = true;
       game.firstBingoPlayerId = player.id;
       phaseChanged = true;
-      refreshAllPlayerScores();
+      refreshAllPlayerScores(room);
       const champEntry = toLeaderboardEntry(player, { includePhoto: true });
-      io.emit("rankingPhase", {
+      emitToRoom(room, "rankingPhase", {
         phase: "grid",
-        rankingUnit: rankingUnit(),
+        rankingUnit: rankingUnit(room),
         firstBingoPlayer: champEntry,
         firstLevelChampion: champEntry
       });
-      io.emit("firstLevelChampion", { player: champEntry });
+      emitToRoom(room, "firstLevelChampion", { player: champEntry });
     } else {
-      player.score = computePlayerScore(player);
+      player.score = computePlayerScore(room, player);
     }
 
     socket.emit("markResult", {
@@ -1105,29 +1292,31 @@ io.on("connection", (socket) => {
       score: player.score,
       completedRows: player.completedRows,
       rankingPhase: game.firstBingoAchieved ? "grid" : "row",
-      rankingUnit: rankingUnit(),
+      rankingUnit: rankingUnit(room),
       marked: [...player.marked]
     });
 
-    io.emit("playerMarked", {
+    emitToRoom(room, "playerMarked", {
       number,
       player: toLeaderboardEntry(player, { includePhoto: true }),
       drawSequence: game.drawSequence,
       rankingPhase: game.firstBingoAchieved ? "grid" : "row",
-      rankingUnit: rankingUnit(),
+      rankingUnit: rankingUnit(room),
       phaseChanged
     });
 
-    emitGameState();
+    emitGameState(room);
 
     // First line crowns "first level" only — final champion needs winRows after that (or host end)
     if (!phaseChanged && player.completedRows >= game.winRows) {
-      finishGame("champion");
+      finishGame(room, "champion");
     }
   });
 
   socket.on("hostStartGame", (payload) => {
-    const accessCode = socket.data.accessSession?.code || currentDashboardCode();
+    const room = requireHostRoom(socket);
+    if (!room) return;
+    const accessCode = socket.data.accessSession?.code;
     if (!accessCode) {
       socket.emit("hostError", {
         message: "Dashboard access required. Sign in with your plan username and password."
@@ -1139,48 +1328,42 @@ io.on("connection", (socket) => {
       return;
     }
     const plan = accessCode.plan || accessCode.tier || "demo";
-    if (plan === "demo" && !accessCode.guest && isPaidGameRunning()) {
-      socket.emit("hostError", { message: DEMO_SUSPEND_MESSAGE });
-      return;
-    }
     const liveAccount = accessStore.findAccountById(accessCode.id);
     if (!liveAccount || !accessStore.isAccountUsable(liveAccount)) {
       socket.emit("hostError", { message: "This plan is expired or disabled." });
       return;
     }
-    if (players.size < 1) {
+    if (room.players.size < 1) {
       socket.emit("hostError", { message: "Need at least one player to start." });
       return;
     }
-    if (players.size > accessCode.maxPlayers) {
+    if (room.players.size > accessCode.maxPlayers) {
       socket.emit("hostError", {
-        message: `This ${plan} plan allows up to ${accessCode.maxPlayers} players. Current lobby has ${players.size}.`
+        message: `This ${plan} plan allows up to ${accessCode.maxPlayers} players. Current lobby has ${room.players.size}.`
       });
       return;
     }
-    if (game.started && !game.ended) {
+    if (room.game.started && !room.game.ended) {
       socket.emit("hostError", { message: "Game already in progress." });
       return;
     }
 
-    dashboardCodeId = accessCode.id;
-    activeGameCodeId = accessCode.id;
-    accessStore.recordPlayerCount(accessCode.id, players.size);
+    accessStore.recordPlayerCount(accessCode.id, room.players.size);
     const eventTitle =
-      normalizeEventTitle(payload?.eventTitle) || game.eventTitle || "Bingo";
+      normalizeEventTitle(payload?.eventTitle) || room.game.eventTitle || "Bingo";
     const authUser = socket.data.authUser || null;
     userStore.recordGameStarted({
       hostUserId: authUser?.id || null,
       hostEmail: authUser?.email || null,
       eventTitle,
-      players: [...players.values()].map((player) => ({
+      players: [...room.players.values()].map((player) => ({
         name: player.name,
         countryCode: player.countryCode
       }))
     });
 
     const maxDrawNumbers = Number(accessCode.rounds) > 0 ? Number(accessCode.rounds) : null;
-    startGame({
+    startGame(room, {
       autoDraw: !!payload?.autoDraw,
       autoDrawMs: payload?.autoDrawMs,
       cardRows: payload?.cardRows,
@@ -1193,6 +1376,9 @@ io.on("connection", (socket) => {
   });
 
   socket.on("hostUpdateSettings", (payload) => {
+    const room = requireHostRoom(socket);
+    if (!room) return;
+    const game = room.game;
     if (game.started && !game.ended) {
       socket.emit("hostError", { message: "Settings are locked while a game is running." });
       return;
@@ -1210,51 +1396,64 @@ io.on("connection", (socket) => {
       game.remainingNumbers = shuffle(
         Array.from({ length: game.maxNumber }, (_, i) => i + 1)
       );
-      emitGameState();
+      emitGameState(room);
     }
   });
 
   socket.on("hostDrawNumber", () => {
-    if (!game.started || game.ended) {
+    const room = requireHostRoom(socket);
+    if (!room) return;
+    if (!room.game.started || room.game.ended) {
       socket.emit("hostError", { message: "Start the game first." });
       return;
     }
-    drawNextNumber();
+    drawNextNumber(room);
   });
 
   socket.on("hostToggleAutoDraw", (payload) => {
-    if (!game.started || game.ended) return;
-    game.autoDraw = !!payload?.autoDraw;
+    const room = requireHostRoom(socket);
+    if (!room) return;
+    if (!room.game.started || room.game.ended) return;
+    room.game.autoDraw = !!payload?.autoDraw;
     if (payload?.autoDrawMs) {
-      game.autoDrawMs = Math.max(10000, Number(payload.autoDrawMs) || game.autoDrawMs);
+      room.game.autoDrawMs = Math.max(
+        10000,
+        Number(payload.autoDrawMs) || room.game.autoDrawMs
+      );
     }
-    if (game.autoDraw) scheduleAutoDraw();
-    else clearAutoDraw();
-    emitGameState();
+    if (room.game.autoDraw) scheduleAutoDraw(room);
+    else clearAutoDraw(room);
+    emitGameState(room);
   });
 
   socket.on("hostEndGame", () => {
-    if (!game.started || game.ended) return;
-    finishGame("host");
+    const room = requireHostRoom(socket);
+    if (!room) return;
+    if (!room.game.started || room.game.ended) return;
+    finishGame(room, "host");
   });
 
   socket.on("hostResetGame", () => {
-    resetLobby();
+    const room = requireHostRoom(socket);
+    if (!room) return;
+    resetLobby(room);
   });
 
   socket.on("disconnect", () => {
-    const playerId = socketToPlayerId.get(socket.id);
-    socketToPlayerId.delete(socket.id);
+    const room = socketRoom(socket);
+    if (!room) return;
+    const playerId = room.socketToPlayerId.get(socket.id);
+    room.socketToPlayerId.delete(socket.id);
     if (!playerId) return;
-    const player = players.get(playerId);
+    const player = room.players.get(playerId);
     if (!player) return;
     if (player.socketId === socket.id) player.socketId = null;
 
     // Drop from lobby only before the game starts.
-    if (!game.started || game.ended) {
-      players.delete(playerId);
-      io.emit("playerLeft", { id: playerId });
-      emitGameState();
+    if (!room.game.started || room.game.ended) {
+      room.players.delete(playerId);
+      emitToRoom(room, "playerLeft", { id: playerId });
+      emitGameState(room);
     }
   });
 });
@@ -1264,8 +1463,8 @@ server.listen(PORT, "0.0.0.0", () => {
   console.log(`Bingo host screen: http://localhost:${PORT}/`);
   console.log(
     lan
-      ? `Bingo phone join (QR): http://${lan}:${PORT}/mobile`
-      : `Bingo mobile join: http://localhost:${PORT}/mobile`
+      ? `Bingo phone join (QR): http://${lan}:${PORT}/mobile?room=CODE`
+      : `Bingo mobile join: http://localhost:${PORT}/mobile?room=CODE`
   );
   console.log(`Plan access login: http://localhost:${PORT}/dashboard-access`);
   console.log(`Admin account: http://localhost:${PORT}/account → /admin`);

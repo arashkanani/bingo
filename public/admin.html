@@ -18,8 +18,8 @@
       <div>
         <p class="event-eyebrow">Bingo</p>
         <h1 class="admin-page-title">Users &amp; plans</h1>
-        <p class="admin-page-sub">
-          Sell plan codes, attach customer emails, monitor logins, and disable hosts — same structure as Aqvarium.
+        <p class="admin-page-sub" id="adminPageSub">
+          Sell plan codes, monitor logins, and disable hosts.
         </p>
       </div>
       <div class="admin-page-links">
@@ -35,17 +35,18 @@
     <div class="admin-accounts">
       <section class="admin-panel card admin-accounts-panel">
         <h2>Sellable access accounts</h2>
-        <p class="admin-desc">
-          Create plan codes (username + password) for customers. Leave email blank to sell upgrade codes;
-          optional email binds a code to one customer. Expiry starts on first login.
-        </p>
+        <div id="adminHelpCopy">
+          <p class="admin-desc">
+            Create plan codes (username + password) for customers. Expiry starts on first login.
+          </p>
 
-        <div class="access-hosting-note">
-          <h3>Bingo plan limits</h3>
-          <ul>
-            <li><strong>Demo</strong> — 15 spins, 5 players (free guest opens automatically)</li>
-            <li><strong>1 day / 3 days / 1 week / 1 month</strong> — full spins (90), up to 150 players</li>
-          </ul>
+          <div class="access-hosting-note">
+            <h3>Bingo plan limits</h3>
+            <ul>
+              <li><strong>Demo</strong> — 15 spins, 5 players (free guest opens automatically)</li>
+              <li><strong>1 day / 3 days / 1 week / 1 month</strong> — full spins (90), up to 150 players</li>
+            </ul>
+          </div>
         </div>
 
         <div id="accessSummary" class="access-summary-grid" aria-live="polite"></div>
@@ -72,10 +73,6 @@
           <label class="access-note-field">
             Password (optional)
             <input id="genPassword" type="text" maxlength="64" placeholder="Leave blank to auto-generate" autocomplete="off">
-          </label>
-          <label class="access-note-field">
-            Customer email (optional)
-            <input id="genEmail" type="email" placeholder="Leave blank for upgrade code">
           </label>
           <button type="button" class="admin-btn admin-btn-primary" id="genBtn">Generate plan code</button>
         </div>
@@ -126,7 +123,6 @@
     const accessCreated = document.getElementById("accessCreated");
     const activityList = document.getElementById("activityList");
     let expandedId = null;
-    let emailEdits = {};
     let busy = false;
 
     function showErr(msg) {
@@ -207,7 +203,6 @@
         tr.innerHTML = `
           <td>
             <button type="button" class="access-linkish" data-expand="${escapeHtml(a.id)}">${escapeHtml(customerName)}</button>
-            ${a.email ? `<div class="access-note">${escapeHtml(a.email)}</div>` : ""}
           </td>
           <td><code>${escapeHtml(a.username || "")}</code></td>
           <td><code>${escapeHtml(a.password || "")}</code></td>
@@ -235,13 +230,6 @@
           detail.innerHTML = `
             <td colspan="8">
               <div class="access-logs">
-                <div class="access-email-edit">
-                  <label>
-                    Login email
-                    <input type="email" data-email-id="${escapeHtml(a.id)}" value="${escapeHtml(emailEdits[a.id] ?? a.email ?? "")}" placeholder="customer@email.com">
-                  </label>
-                  <button type="button" class="admin-btn admin-btn-primary admin-btn-sm" data-save-email="${escapeHtml(a.id)}">Save email</button>
-                </div>
                 <div>Customer: ${escapeHtml(customerName)}</div>
                 <div>Created: ${escapeHtml(new Date(a.createdAt).toLocaleString())}</div>
                 <div>Date used: ${escapeHtml(usedLabel)}</div>
@@ -285,7 +273,6 @@
           body: JSON.stringify({
             plan: document.getElementById("genPlan").value,
             count: Number(document.getElementById("genCount").value) || 1,
-            email: document.getElementById("genEmail").value.trim(),
             customerName,
             note: customerName,
             password: password || undefined
@@ -293,24 +280,13 @@
         });
         const created = data.accounts || [];
         setStatus(`Created ${created.length} account(s)`);
-        document.getElementById("genEmail").value = "";
+        document.getElementById("genCustomerName").value = "";
         document.getElementById("genPassword").value = "";
-        accessCreated.classList.remove("hidden");
-        accessCreated.innerHTML = `
-          <h3>Just created — send username &amp; password to customer</h3>
-          ${created
-            .map(
-              (a) => `
-            <div class="access-created-row">
-              <strong>${escapeHtml(a.customerName || customerName || "—")}</strong>
-              <code>${escapeHtml(a.username)}</code>
-              <code>${escapeHtml(a.password)}</code>
-              <span>${escapeHtml(a.planLabel)}${a.email ? ` · ${escapeHtml(a.email)}` : ""}</span>
-              <button type="button" class="admin-btn admin-btn-secondary admin-btn-sm" data-copy="Customer: ${escapeHtml(a.customerName || customerName || "—")}\\nPlan username: ${escapeHtml(a.username)}\\nPlan password: ${escapeHtml(a.password)}\\nPlan: ${escapeHtml(a.planLabel)}">Copy</button>
-            </div>`
-            )
-            .join("")}
-        `;
+        document.getElementById("adminHelpCopy")?.classList.add("hidden");
+        document.getElementById("adminPageSub")?.classList.add("hidden");
+        expandedId = null;
+        accessCreated.classList.add("hidden");
+        accessCreated.innerHTML = "";
         await refresh();
       } catch (err) {
         showErr(err.message || "Create failed");
@@ -340,23 +316,6 @@
         return;
       }
 
-      const saveEmail = ev.target.closest("[data-save-email]");
-      if (saveEmail) {
-        const id = saveEmail.getAttribute("data-save-email");
-        const input = accountsBody.querySelector(`[data-email-id="${id}"]`);
-        try {
-          await BingoAuth.apiFetch(`/api/admin/access/accounts/${encodeURIComponent(id)}/email`, {
-            method: "POST",
-            body: JSON.stringify({ email: input?.value || "" })
-          });
-          setStatus("Email saved");
-          await refresh();
-        } catch (err) {
-          showErr(err.message || "Email update failed");
-        }
-        return;
-      }
-
       const actionBtn = ev.target.closest("[data-action]");
       if (!actionBtn || busy) return;
       const id = actionBtn.getAttribute("data-id");
@@ -382,12 +341,6 @@
       } finally {
         busy = false;
       }
-    });
-
-    accountsBody.addEventListener("input", (ev) => {
-      const input = ev.target.closest("[data-email-id]");
-      if (!input) return;
-      emailEdits[input.getAttribute("data-email-id")] = input.value;
     });
 
     document.getElementById("adminSignOutBtn").addEventListener("click", async () => {

@@ -1025,6 +1025,10 @@ io.on("connection", (socket) => {
       marked: new Set()
     };
     players.set(player.id, player);
+    const hostAccountId = activeGameCodeId || dashboardCodeId;
+    if (hostAccountId) {
+      accessStore.recordPlayerCount(hostAccountId, players.size);
+    }
     bindSocketToPlayer(socket, player);
     socket.emit("joined", {
       id: player.id,
@@ -1161,6 +1165,7 @@ io.on("connection", (socket) => {
 
     dashboardCodeId = accessCode.id;
     activeGameCodeId = accessCode.id;
+    accessStore.recordPlayerCount(accessCode.id, players.size);
     const eventTitle =
       normalizeEventTitle(payload?.eventTitle) || game.eventTitle || "Bingo";
     const authUser = socket.data.authUser || null;

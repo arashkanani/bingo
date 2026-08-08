@@ -97,7 +97,10 @@
                 <th>Username</th>
                 <th>Password</th>
                 <th>Paid</th>
+                <th>Location</th>
                 <th>Date used</th>
+                <th>Duration</th>
+                <th>Players</th>
                 <th>Plan</th>
                 <th>Status</th>
                 <th>Left</th>
@@ -152,6 +155,31 @@
       const hours = Math.floor(mins / 60);
       if (hours < 48) return `${hours}h`;
       return `${Math.floor(hours / 24)}d`;
+    }
+
+    function formatDuration(ms) {
+      if (ms == null) return "—";
+      if (ms < 60000) return "<1m";
+      const mins = Math.floor(ms / 60000);
+      if (mins < 60) return `${mins}m`;
+      const hours = Math.floor(mins / 60);
+      const remMins = mins % 60;
+      if (hours < 48) return remMins ? `${hours}h ${remMins}m` : `${hours}h`;
+      const days = Math.floor(hours / 24);
+      const remHours = hours % 24;
+      return remHours ? `${days}d ${remHours}h` : `${days}d`;
+    }
+
+    function formatLocation(a) {
+      return [a.lastCity, a.lastRegion, a.lastCountry].filter(Boolean).join(", ") || "—";
+    }
+
+    function formatPlayers(a) {
+      const last = Number(a.lastPlayerCount) || 0;
+      const peak = Number(a.peakPlayerCount) || 0;
+      if (!last && !peak) return "—";
+      if (peak > last) return `${last} (peak ${peak})`;
+      return String(peak || last);
     }
 
     async function requireAdminSession() {
@@ -211,7 +239,10 @@
           <td class="access-paid-cell">
             <input type="checkbox" class="access-paid-tick" data-paid-id="${escapeHtml(a.id)}" ${a.paid ? "checked" : ""} title="Mark as paid">
           </td>
+          <td title="${escapeHtml(a.lastIp || "")}">${escapeHtml(formatLocation(a))}</td>
           <td title="${escapeHtml(usedAt || "")}">${escapeHtml(usedLabel)}</td>
+          <td title="${a.firstLoginAt ? escapeHtml("Since " + new Date(a.firstLoginAt).toLocaleString()) : ""}">${escapeHtml(formatDuration(a.msUsed))}</td>
+          <td title="Last lobby / peak players">${escapeHtml(formatPlayers(a))}</td>
           <td>${escapeHtml(a.planLabel || a.plan)}</td>
           <td><span class="access-pill ${escapeHtml(a.status)}">${escapeHtml(a.statusLabel || a.status)}</span></td>
           <td>${escapeHtml(formatRemaining(a.msRemaining))}</td>

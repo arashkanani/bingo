@@ -25,6 +25,7 @@ const {
 } = require("./lib/config");
 const authLib = require("./lib/auth");
 const userStore = require("./lib/user-store");
+const accessStore = require("./lib/access-store");
 const googleAuth = require("./lib/google-auth");
 const { attachSocketAuthMiddleware } = require("./lib/socket-auth");
 
@@ -54,8 +55,19 @@ function accessCookieOptions() {
     httpOnly: true,
     secure: IS_PRODUCTION,
     sameSite: "lax",
-    maxAge: userStore.ACCESS_SESSION_TTL_MS,
+    maxAge: accessStore.ACCESS_SESSION_TTL_MS,
     path: "/"
+  };
+}
+
+function toDashboardAccess(sessionBundle) {
+  if (!sessionBundle?.account) return null;
+  const pub = accessStore.publicAccount(sessionBundle.account);
+  return {
+    token: sessionBundle.session.token,
+    code: pub,
+    account: pub,
+    expiresAt: sessionBundle.session.expiresAt
   };
 }
 
@@ -64,8 +76,8 @@ app.use(express.json({ limit: "300kb" }));
 app.use(cookieParser());
 app.use(authLib.attachUserMiddleware());
 app.use((req, _res, next) => {
-  const token = req.cookies?.[userStore.ACCESS_COOKIE_NAME];
-  req.dashboardAccess = userStore.getAccessSession(token) || null;
+  const token = req.cookies?.[accessStore.ACCESS_COOKIE];
+  req.dashboardAccess = toDashboardAccess(accessStore.getSession(token));
   next();
 });
 
@@ -258,6 +270,8 @@ function createNewGame(settings = {}) {
     cardCols: size.cols,
     maxNumber: maxNum,
     winRows,
+    maxDrawNumbers: settings.maxDrawNumbers || null,
+    planTier: settings.planTier || "demo",
     firstBingoAchieved: false,
     firstBingoPlayerId: null,
     calledNumbers: [],
@@ -278,12 +292,16 @@ let dashboardCodeId = null;
 let activeGameCodeId = null;
 
 function currentDashboardCode() {
-  return userStore.getCodeById(activeGameCodeId || dashboardCodeId);
+  const id = activeGameCodeId || dashboardCodeId;
+  if (!id) return null;
+  const account = accessStore.findAccountById(id);
+  return account ? accessStore.publicAccount(account) : null;
 }
 
-function isRealGameRunning() {
-  const code = userStore.getCodeById(activeGameCodeId);
-  return Boolean(game.started && !game.ended && code?.tier === "real");
+function isPaidGameRunning() {
+  const code = currentDashboardCode();
+  const paid = code && code.plan && code.plan !== "demo";
+  return Boolean(game.started && !game.ended && paid);
 }
 
 function effectiveMaxPlayers() {
@@ -377,6 +395,9 @@ function buildGameStatePayload() {
     autoDraw: game.autoDraw,
     autoDrawMs: game.autoDrawMs,
     winRows: game.winRows,
+    maxDrawNumbers: game.maxDrawNumbers || null,
+    planDrawsLeft: drawsRemainingInPlan(),
+    planTier: game.planTier || null,
     firstBingoAchieved: !!game.firstBingoAchieved,
     rankingPhase: game.firstBingoAchieved ? "grid" : "row",
     rankingUnit: rankingUnit(),
@@ -439,10 +460,26 @@ function finishGame(reason) {
   emitGameState();
 }
 
+function drawsRemainingInPlan() {
+  if (!game.maxDrawNumbers) return null;
+  return Math.max(0, Number(game.maxDrawNumbers) - game.calledNumbers.length);
+}
+
 function drawNextNumber() {
   if (!game.started || game.ended) return null;
   if (!game.remainingNumbers.length) {
     finishGame("all_numbers");
+    return null;
+  }
+  if (game.maxDrawNumbers && game.calledNumbers.length >= game.maxDrawNumbers) {
+    clearAutoDraw();
+    io.emit("drawLimitReached", {
+      maxDrawNumbers: game.maxDrawNumbers,
+      planTier: game.planTier || "demo",
+      message:
+        "Demo limit reached (15 numbers). Upgrade your plan to spin the full game."
+    });
+    emitGameState();
     return null;
   }
 
@@ -453,15 +490,28 @@ function drawNextNumber() {
   game.calledNumbers.push(number);
   game.drawSequence += 1;
 
+  const planDrawsLeft = drawsRemainingInPlan();
   io.emit("numberDrawn", {
     number,
     letter,
     drawSequence: game.drawSequence,
     calledNumbers: game.calledNumbers,
-    remainingCount: game.remainingNumbers.length
+    remainingCount: game.remainingNumbers.length,
+    planDrawsLeft
   });
   emitGameState();
-  scheduleAutoDraw();
+
+  if (game.maxDrawNumbers && game.calledNumbers.length >= game.maxDrawNumbers) {
+    clearAutoDraw();
+    io.emit("drawLimitReached", {
+      maxDrawNumbers: game.maxDrawNumbers,
+      planTier: game.planTier || "demo",
+      message:
+        "Demo limit reached (15 numbers). Upgrade your plan to spin the full game."
+    });
+  } else {
+    scheduleAutoDraw();
+  }
   return number;
 }
 
@@ -487,12 +537,21 @@ function startGame({
   cardRows,
   cardCols,
   winRows,
-  eventTitle
+  eventTitle,
+  maxDrawNumbers = null,
+  planTier = "demo"
 } = {}) {
   clearAutoDraw();
   const title =
     eventTitle !== undefined ? normalizeEventTitle(eventTitle) : game.eventTitle;
-  game = createNewGame({ cardRows, cardCols, winRows, eventTitle: title });
+  game = createNewGame({
+    cardRows,
+    cardCols,
+    winRows,
+    eventTitle: title,
+    maxDrawNumbers,
+    planTier
+  });
   game.started = true;
   if (autoDrawMs) game.autoDrawMs = Math.max(10000, Number(autoDrawMs) || 10000);
   game.autoDraw = !!autoDraw;
@@ -536,9 +595,13 @@ app.get("/admin", (_req, res) => {
 });
 
 app.get("/", (req, res) => {
+  // Open on free demo by default (15-number spin limit).
   if (!req.dashboardAccess) {
-    res.redirect("/dashboard-access?next=/");
-    return;
+    const session = accessStore.createGuestDemoSession();
+    if (session?.token) {
+      res.cookie(accessStore.ACCESS_COOKIE, session.token, accessCookieOptions());
+      dashboardCodeId = session.account?.id || accessStore.GUEST_DEMO_ID;
+    }
   }
   res.sendFile(path.join(publicDir, "host.html"));
 });
@@ -622,57 +685,52 @@ app.get("/api/auth/me", (req, res) => {
 });
 
 app.get("/api/access/debug-hint", (_req, res) => {
-  res.json(userStore.getDebugAccessHint() || { debug: false });
+  res.json({ username: "GUEST-DEMO", password: "GUEST-DEMO", note: "Free demo opens automatically" });
 });
 
 app.get("/api/access/me", (req, res) => {
   if (!req.dashboardAccess?.code) {
-    res.json({ access: null, realGameRunning: isRealGameRunning() });
+    res.json({ access: null, paidGameRunning: isPaidGameRunning() });
     return;
   }
   res.json({
     access: req.dashboardAccess.code,
-    realGameRunning: isRealGameRunning()
+    paidGameRunning: isPaidGameRunning()
   });
 });
 
-app.post("/api/access/login", (req, res) => {
-  const username = String(req.body?.username || "").trim();
+app.post("/api/access/login", async (req, res) => {
+  const username = String(req.body?.username || req.body?.email || "").trim();
   const password = String(req.body?.password || "").trim();
-  const code = userStore.findAccessCodeByCredentials(username, password);
-  if (!code || code.disabled) {
+  const account = accessStore.findAccountByCredentials(username, password);
+  if (!account || account.disabled) {
     res.status(401).json({ error: "Invalid username or password." });
     return;
   }
-  if (code.tier === "demo" && isRealGameRunning()) {
+  if (!accessStore.isAccountUsable(account)) {
+    res.status(403).json({ error: "This plan is expired or disabled." });
+    return;
+  }
+  if (account.plan === "demo" && !account.guest && isPaidGameRunning()) {
     res.status(403).json({ error: DEMO_SUSPEND_MESSAGE, reason: "demo_suspended" });
     return;
   }
-  if (userStore.isAccessCodeExpired(code)) {
-    res.status(403).json({ error: "This access code has expired.", reason: "expired" });
-    return;
-  }
-  if (!userStore.hasAccessCodeUsesRemaining(code)) {
-    res.status(403).json({
-      error: "This access code has reached its maximum number of game launches.",
-      reason: "uses_exhausted"
-    });
-    return;
-  }
-  const session = userStore.createAccessSession(code.id);
+  const geo = await accessStore.lookupGeo(accessStore.getClientIp(req));
+  accessStore.recordLogin(account.id, geo);
+  const session = accessStore.createSession(account.id);
   if (!session) {
     res.status(400).json({ error: "Could not create dashboard session." });
     return;
   }
-  dashboardCodeId = code.id;
-  res.cookie(userStore.ACCESS_COOKIE_NAME, session.token, accessCookieOptions());
-  res.json({ access: session.code });
+  dashboardCodeId = account.id;
+  res.cookie(accessStore.ACCESS_COOKIE, session.token, accessCookieOptions());
+  res.json({ access: accessStore.publicAccount(account) });
 });
 
 app.post("/api/access/logout", (req, res) => {
-  const token = req.cookies?.[userStore.ACCESS_COOKIE_NAME];
-  userStore.clearAccessSession(token);
-  res.clearCookie(userStore.ACCESS_COOKIE_NAME, {
+  const token = req.cookies?.[accessStore.ACCESS_COOKIE];
+  accessStore.destroySession(token);
+  res.clearCookie(accessStore.ACCESS_COOKIE, {
     path: "/",
     secure: IS_PRODUCTION,
     sameSite: "lax"
@@ -698,67 +756,83 @@ app.get("/api/admin/activity", authLib.requireAdmin, (req, res) => {
   res.json(userStore.listActivity({ limit, offset }));
 });
 
-app.get("/api/admin/access-codes", authLib.requireAdmin, (_req, res) => {
-  res.json({ codes: userStore.listAccessCodes(), realGameRunning: isRealGameRunning() });
+app.get("/api/admin/access/summary", authLib.requireAdmin, (_req, res) => {
+  res.json(accessStore.getSummary());
 });
 
-app.post("/api/admin/access-codes/weekly", authLib.requireAdmin, (req, res) => {
+app.get("/api/admin/access/accounts", authLib.requireAdmin, (_req, res) => {
+  res.json({ accounts: accessStore.listAccounts() });
+});
+
+app.post("/api/admin/access/accounts", authLib.requireAdmin, (req, res) => {
   try {
-    const result = userStore.ensureWeeklyAccessCodes(5);
+    const accounts = accessStore.createAccounts(
+      req.body?.plan,
+      req.body?.count,
+      req.body?.note,
+      req.body?.email
+    );
     appendAudit({
       req,
-      type: "access.weekly_ensure",
-      meta: { created: result.created.length, activeWeekly: result.weeklyCodes.length }
+      type: "access.accounts_created",
+      meta: { count: accounts.length, plan: req.body?.plan || null }
     });
-    res.json(result);
+    res.json({ accounts });
   } catch (error) {
-    res.status(400).json({ error: error.message || "Could not create weekly codes." });
+    res.status(400).json({ error: error.message || "Could not create accounts." });
   }
 });
 
-app.post("/api/admin/access-codes/:id/disable-regenerate", authLib.requireAdmin, (req, res) => {
+app.post("/api/admin/access/accounts/:id/email", authLib.requireAdmin, (req, res) => {
   try {
-    const result = userStore.disableAndRegenerateAccessCode(req.params.id, "disabled_by_admin");
-    const clearedSessions = userStore.clearAccessSessionsByCodeId(req.params.id);
-    if (dashboardCodeId === req.params.id) dashboardCodeId = null;
-    if (activeGameCodeId === req.params.id) {
-      activeGameCodeId = null;
-      if (game.started && !game.ended) finishGame("admin");
-    }
-    appendAudit({
-      req,
-      type: "access.disable_regenerate",
-      meta: {
-        disabledUsername: result.disabled.username,
-        replacementUsername: result.replacement.username,
-        tier: result.disabled.tier,
-        clearedSessions
-      }
-    });
-    res.json({ ...result, clearedSessions });
-  } catch (error) {
-    res.status(400).json({ error: error.message || "Could not disable code." });
-  }
-});
-
-app.post("/api/admin/access-codes/:id/force-logout", authLib.requireAdmin, (req, res) => {
-  try {
-    const code = userStore.getCodeById(req.params.id);
-    if (!code) {
-      res.status(404).json({ error: "Access code not found." });
+    const account = accessStore.setAccountEmail(req.params.id, req.body?.email);
+    if (!account) {
+      res.status(404).json({ error: "Account not found." });
       return;
     }
-    const clearedSessions = userStore.clearAccessSessionsByCodeId(req.params.id);
-    if (dashboardCodeId === req.params.id) dashboardCodeId = null;
-    appendAudit({
-      req,
-      type: "access.force_logout",
-      meta: { username: code.username, tier: code.tier, clearedSessions }
-    });
-    res.json({ ok: true, clearedSessions });
+    res.json({ account });
   } catch (error) {
-    res.status(400).json({ error: error.message || "Could not force logout." });
+    res.status(400).json({ error: error.message || "Could not save email." });
   }
+});
+
+app.post("/api/admin/access/accounts/:id/disable", authLib.requireAdmin, (req, res) => {
+  const account = accessStore.disableAccount(req.params.id);
+  if (!account) {
+    res.status(404).json({ error: "Account not found." });
+    return;
+  }
+  if (dashboardCodeId === req.params.id) dashboardCodeId = null;
+  if (activeGameCodeId === req.params.id) {
+    activeGameCodeId = null;
+    if (game.started && !game.ended) finishGame("admin");
+  }
+  res.json({ account });
+});
+
+app.post("/api/admin/access/accounts/:id/enable", authLib.requireAdmin, (req, res) => {
+  const account = accessStore.enableAccount(req.params.id);
+  if (!account) {
+    res.status(404).json({ error: "Account not found." });
+    return;
+  }
+  res.json({ account });
+});
+
+app.post("/api/admin/access/accounts/:id/regenerate", authLib.requireAdmin, (req, res) => {
+  const result = accessStore.regenerateAccount(req.params.id);
+  if (!result) {
+    res.status(404).json({ error: "Account not found." });
+    return;
+  }
+  if (dashboardCodeId === req.params.id) dashboardCodeId = null;
+  res.json(result);
+});
+
+app.post("/api/admin/access/accounts/:id/logout", authLib.requireAdmin, (req, res) => {
+  const result = accessStore.forceLogoutAccount(req.params.id);
+  if (dashboardCodeId === req.params.id) dashboardCodeId = null;
+  res.json({ ok: true, clearedSessions: result.removed || 0 });
 });
 
 app.get("/api/countries", (_req, res) => {
@@ -1031,16 +1105,14 @@ io.on("connection", (socket) => {
       socket.emit("hostError", { message: "This access code is disabled. Contact admin for a new code." });
       return;
     }
-    if (accessCode.tier === "demo" && isRealGameRunning()) {
+    const plan = accessCode.plan || accessCode.tier || "demo";
+    if (plan === "demo" && !accessCode.guest && isPaidGameRunning()) {
       socket.emit("hostError", { message: DEMO_SUSPEND_MESSAGE });
       return;
     }
-    if (userStore.isAccessCodeExpired(accessCode)) {
-      socket.emit("hostError", { message: "This access code has expired." });
-      return;
-    }
-    if (!userStore.hasAccessCodeUsesRemaining(accessCode)) {
-      socket.emit("hostError", { message: "This access code has no launches remaining." });
+    const liveAccount = accessStore.findAccountById(accessCode.id);
+    if (!liveAccount || !accessStore.isAccountUsable(liveAccount)) {
+      socket.emit("hostError", { message: "This plan is expired or disabled." });
       return;
     }
     if (players.size < 1) {
@@ -1049,7 +1121,7 @@ io.on("connection", (socket) => {
     }
     if (players.size > accessCode.maxPlayers) {
       socket.emit("hostError", {
-        message: `This ${accessCode.tier} code allows up to ${accessCode.maxPlayers} players. Current lobby has ${players.size}.`
+        message: `This ${plan} plan allows up to ${accessCode.maxPlayers} players. Current lobby has ${players.size}.`
       });
       return;
     }
@@ -1062,10 +1134,6 @@ io.on("connection", (socket) => {
     activeGameCodeId = accessCode.id;
     const eventTitle =
       normalizeEventTitle(payload?.eventTitle) || game.eventTitle || "Bingo";
-    userStore.consumeAccessCodeUse(accessCode.id, {
-      playerCount: players.size,
-      eventTitle
-    });
     const authUser = socket.data.authUser || null;
     userStore.recordGameStarted({
       hostUserId: authUser?.id || null,
@@ -1077,13 +1145,16 @@ io.on("connection", (socket) => {
       }))
     });
 
+    const maxDrawNumbers = Number(accessCode.rounds) > 0 ? Number(accessCode.rounds) : null;
     startGame({
       autoDraw: !!payload?.autoDraw,
       autoDrawMs: payload?.autoDrawMs,
       cardRows: payload?.cardRows,
       cardCols: payload?.cardCols,
       winRows: payload?.winRows,
-      eventTitle
+      eventTitle,
+      maxDrawNumbers,
+      planTier: plan
     });
   });
 

@@ -31,6 +31,7 @@
         <div class="host-actions hidden" id="endedActions">
           <button id="resetBtn">Next game — show QR</button>
         </div>
+        <button type="button" id="upgradeBtn" class="secondary upgrade-btn">Upgrade</button>
       </div>
     </header>
 
@@ -116,6 +117,31 @@
         </aside>
       </div>
     </section>
+  </div>
+
+  <div id="upgradeOverlay" class="settings-overlay hidden" aria-hidden="true">
+    <div class="card settings-sheet upgrade-sheet" role="dialog" aria-labelledby="upgradeTitle">
+      <div class="settings-sheet-head">
+        <h3 id="upgradeTitle">Upgrade plan</h3>
+        <button type="button" id="upgradeCloseBtn" class="secondary settings-close">Close</button>
+      </div>
+      <p class="status settings-intro">
+        You’re on <strong>Demo</strong> (15 spins per game). Enter a plan username &amp; password from your admin, or create an account.
+      </p>
+      <div id="upgradeError" class="account-alert err hidden" role="alert"></div>
+      <div id="upgradeOk" class="account-alert ok hidden" role="status"></div>
+      <form id="upgradePlanForm" class="account-form" autocomplete="off">
+        <label for="upgradeUsername">Plan username</label>
+        <input id="upgradeUsername" name="username" type="text" required placeholder="e.g. REAL-AB12CD">
+        <label for="upgradePassword">Plan password</label>
+        <input id="upgradePassword" name="password" type="password" required placeholder="Enter password">
+        <button type="submit" class="submit-btn" id="upgradePlanBtn">Activate plan</button>
+      </form>
+      <div class="upgrade-account-links">
+        <a class="secondary upgrade-link-btn" href="/account?next=/">Sign in / Sign up</a>
+        <a class="secondary upgrade-link-btn" href="/admin">Admin dashboard</a>
+      </div>
+    </div>
   </div>
 
   <div id="settingsOverlay" class="settings-overlay hidden" aria-hidden="true">
@@ -1087,25 +1113,109 @@
     });
 
     const hostAccessBadge = document.getElementById("hostAccessBadge");
+    const upgradeBtn = document.getElementById("upgradeBtn");
+    const upgradeOverlay = document.getElementById("upgradeOverlay");
+    const upgradeCloseBtn = document.getElementById("upgradeCloseBtn");
+    const upgradePlanForm = document.getElementById("upgradePlanForm");
+    const upgradeError = document.getElementById("upgradeError");
+    const upgradeOk = document.getElementById("upgradeOk");
+
+    function openUpgrade() {
+      upgradeOverlay.classList.remove("hidden");
+      upgradeOverlay.setAttribute("aria-hidden", "false");
+    }
+
+    function closeUpgrade() {
+      upgradeOverlay.classList.add("hidden");
+      upgradeOverlay.setAttribute("aria-hidden", "true");
+    }
+
+    function showUpgradeErr(msg) {
+      upgradeOk.classList.add("hidden");
+      if (!msg) {
+        upgradeError.classList.add("hidden");
+        upgradeError.textContent = "";
+        return;
+      }
+      upgradeError.textContent = msg;
+      upgradeError.classList.remove("hidden");
+    }
+
+    function showUpgradeOk(msg) {
+      upgradeError.classList.add("hidden");
+      upgradeOk.textContent = msg;
+      upgradeOk.classList.remove("hidden");
+    }
+
     async function refreshAccessBadge() {
       try {
         const res = await fetch("/api/access/me", { credentials: "include" });
         const data = await res.json();
         if (!hostAccessBadge) return;
         if (!data?.access) {
-          hostAccessBadge.textContent = "Plan: locked";
+          hostAccessBadge.textContent = "Demo · 15 spins";
           return;
         }
         const a = data.access;
-        const uses =
-          a.unlimitedUses
-            ? "unlimited launches"
-            : `${a.usesRemaining ?? 0} launches left`;
-        hostAccessBadge.textContent = `${String(a.tier || "plan").toUpperCase()} · ${uses}`;
+        const plan = a.plan || a.tier || "demo";
+        const spins = Number(a.rounds) || 15;
+        if (plan === "demo" || a.guest) {
+          hostAccessBadge.textContent = `Demo · ${spins} spins max`;
+          if (upgradeBtn) upgradeBtn.classList.remove("hidden");
+        } else {
+          hostAccessBadge.textContent = a.planLabel || String(plan).toUpperCase();
+          if (upgradeBtn) upgradeBtn.classList.add("hidden");
+        }
       } catch (_err) {
-        if (hostAccessBadge) hostAccessBadge.textContent = "Plan: —";
+        if (hostAccessBadge) hostAccessBadge.textContent = "Demo · 15 spins";
       }
     }
+
+    if (upgradeBtn) upgradeBtn.addEventListener("click", openUpgrade);
+    if (upgradeCloseBtn) upgradeCloseBtn.addEventListener("click", closeUpgrade);
+    if (upgradeOverlay) {
+      upgradeOverlay.addEventListener("click", (e) => {
+        if (e.target === upgradeOverlay) closeUpgrade();
+      });
+    }
+
+    if (upgradePlanForm) {
+      upgradePlanForm.addEventListener("submit", async (e) => {
+        e.preventDefault();
+        showUpgradeErr("");
+        showUpgradeOk("");
+        const username = document.getElementById("upgradeUsername").value.trim();
+        const password = document.getElementById("upgradePassword").value.trim();
+        const btn = document.getElementById("upgradePlanBtn");
+        btn.disabled = true;
+        try {
+          const res = await fetch("/api/access/login", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ username, password })
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.error || "Could not activate plan.");
+          showUpgradeOk(`Plan activated: ${String(data.access?.tier || "").toUpperCase()}`);
+          await refreshAccessBadge();
+          setTimeout(() => {
+            closeUpgrade();
+            window.location.reload();
+          }, 700);
+        } catch (err) {
+          showUpgradeErr(err.message || "Upgrade failed.");
+        } finally {
+          btn.disabled = false;
+        }
+      });
+    }
+
+    socket.on("drawLimitReached", ({ message }) => {
+      alert(message || "Demo spin limit reached. Use Upgrade for a full plan.");
+      openUpgrade();
+    });
+
     refreshAccessBadge();
   </script>
 </body>

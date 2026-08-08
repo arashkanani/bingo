@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin · Bingo</title>
+  <title>Users &amp; plans · Bingo</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -17,8 +17,10 @@
     <header class="admin-page-head">
       <div>
         <p class="event-eyebrow">Bingo</p>
-        <h1 class="admin-page-title">Admin dashboard</h1>
-        <p class="admin-page-sub">Registered accounts and mobile players. Counts update when the host starts a game.</p>
+        <h1 class="admin-page-title">Users &amp; plans</h1>
+        <p class="admin-page-sub">
+          Sell plan codes, attach customer emails, monitor logins, and disable hosts — same structure as Aqvarium.
+        </p>
       </div>
       <div class="admin-page-links">
         <a href="/">Host</a>
@@ -28,103 +30,83 @@
     </header>
 
     <div id="adminError" class="account-alert err hidden" role="alert"></div>
+    <p id="adminStatus" class="admin-status"></p>
 
-    <div id="adminSummary" class="admin-summary-grid" aria-live="polite"></div>
+    <div class="admin-accounts">
+      <section class="admin-panel card admin-accounts-panel">
+        <h2>Sellable access accounts</h2>
+        <p class="admin-desc">
+          Create plan codes (username + password) for customers. Leave email blank to sell upgrade codes;
+          optional email binds a code to one customer. Expiry starts on first login.
+        </p>
 
-    <div class="admin-panels">
-      <section class="admin-panel card admin-panel-wide">
-        <div class="admin-panel-head">
-          <h2>Access codes (Demo / Weekly / Real)</h2>
-          <div class="admin-panel-actions">
-            <button type="button" class="ghost-btn" id="createWeeklyCodesBtn">Create 5 weekly codes</button>
-            <button type="button" class="ghost-btn" id="reloadCodesBtn">Refresh</button>
-          </div>
+        <div class="access-hosting-note">
+          <h3>Bingo plan limits</h3>
+          <ul>
+            <li><strong>Demo</strong> — 15 spins, 5 players (free guest opens automatically)</li>
+            <li><strong>1 day / 3 days / 1 week / 1 month</strong> — full spins (90), up to 150 players</li>
+          </ul>
         </div>
-        <p class="admin-panel-hint">Weekly codes are valid for 7 days and have unlimited game launches. Disable any code to immediately generate a fresh replacement of the same tier.</p>
-        <div class="admin-table-wrap">
-          <table class="admin-table admin-table-compact">
-            <thead>
-              <tr>
-                <th>Tier</th>
-                <th>Username</th>
-                <th>Password</th>
-                <th>Usage</th>
-                <th>Expires</th>
-                <th>Last usage</th>
-                <th>Status</th>
-                <th>Actions</th>
-              </tr>
-            </thead>
-            <tbody id="codesTableBody"></tbody>
-          </table>
+
+        <div id="accessSummary" class="access-summary-grid" aria-live="polite"></div>
+
+        <div class="access-generate">
+          <label>
+            Plan
+            <select id="genPlan">
+              <option value="demo">Demo (15 spins)</option>
+              <option value="day">1 day</option>
+              <option value="days3">3 days</option>
+              <option value="week" selected>1 week</option>
+              <option value="month">1 month</option>
+            </select>
+          </label>
+          <label>
+            Count
+            <input id="genCount" type="number" min="1" max="50" value="1">
+          </label>
+          <label class="access-note-field">
+            Customer email (optional)
+            <input id="genEmail" type="email" placeholder="Leave blank for upgrade code">
+          </label>
+          <label class="access-note-field">
+            Note (optional)
+            <input id="genNote" type="text" maxlength="120" placeholder="Marketing team / Client name">
+          </label>
+          <button type="button" class="admin-btn admin-btn-primary" id="genBtn">Generate plan code</button>
         </div>
+
+        <div id="accessCreated" class="access-created hidden"></div>
       </section>
 
-      <section class="admin-panel card">
-        <div class="admin-panel-head">
-          <h2>Registered users</h2>
-          <button type="button" class="ghost-btn" id="reloadUsersBtn">Refresh</button>
+      <section class="admin-panel card admin-accounts-panel">
+        <div class="access-table-head">
+          <h2>Monitor accounts</h2>
+          <button type="button" class="admin-btn admin-btn-secondary admin-btn-sm" id="refreshAccountsBtn">Refresh</button>
         </div>
-        <p class="admin-panel-hint">Hosts who signed in with email or Google. Game names are event titles when they started a game while signed in.</p>
-        <div class="admin-table-wrap">
-          <table class="admin-table">
+        <div class="access-table-wrap">
+          <table class="access-table">
             <thead>
               <tr>
                 <th>Email</th>
-                <th>Role</th>
-                <th>Times played</th>
-                <th>Game names</th>
-                <th>Joined</th>
+                <th>Password</th>
+                <th>Plan</th>
+                <th>Status</th>
+                <th>Left</th>
+                <th>Location</th>
+                <th>Logins</th>
+                <th>Actions</th>
               </tr>
             </thead>
-            <tbody id="usersTableBody"></tbody>
+            <tbody id="accountsBody"></tbody>
           </table>
+          <p id="accountsEmpty" class="admin-desc hidden">No accounts yet — generate some above.</p>
         </div>
       </section>
 
-      <section class="admin-panel card">
-        <div class="admin-panel-head">
-          <h2>Mobile players</h2>
-          <button type="button" class="ghost-btn" id="reloadMobileBtn">Refresh</button>
-        </div>
-        <p class="admin-panel-hint">Players on phones (no account). Name from registration; counted each time they were in a lobby when the host started a game.</p>
-        <div class="admin-table-wrap">
-          <table class="admin-table">
-            <thead>
-              <tr>
-                <th>Player name</th>
-                <th>Country</th>
-                <th>Times played</th>
-                <th>Game names</th>
-                <th>Last played</th>
-              </tr>
-            </thead>
-            <tbody id="mobileTableBody"></tbody>
-          </table>
-        </div>
-      </section>
-
-      <section class="admin-panel card admin-panel-wide">
-        <div class="admin-panel-head">
-          <h2>Recent activity</h2>
-          <div class="admin-panel-actions">
-            <button type="button" class="ghost-btn" id="reloadActivityBtn">Refresh</button>
-            <button type="button" class="ghost-btn" id="moreActivityBtn">Load more</button>
-          </div>
-        </div>
-        <div class="admin-table-wrap">
-          <table class="admin-table admin-table-compact">
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>User</th>
-                <th>Action</th>
-                <th>Details</th>
-              </tr>
-            </thead>
-            <tbody id="activityTableBody"></tbody>
-          </table>
-        </div>
+      <section class="admin-panel card admin-accounts-panel">
+        <h2>Recent activity</h2>
+        <ul class="access-activity" id="activityList"></ul>
       </section>
     </div>
   </div>
@@ -133,12 +115,15 @@
   <script src="/player-ui.js"></script>
   <script>
     const adminError = document.getElementById("adminError");
-    const adminSummary = document.getElementById("adminSummary");
-    const usersTableBody = document.getElementById("usersTableBody");
-    const mobileTableBody = document.getElementById("mobileTableBody");
-    const activityTableBody = document.getElementById("activityTableBody");
-    const codesTableBody = document.getElementById("codesTableBody");
-    let activityOffset = 0;
+    const adminStatus = document.getElementById("adminStatus");
+    const accessSummary = document.getElementById("accessSummary");
+    const accountsBody = document.getElementById("accountsBody");
+    const accountsEmpty = document.getElementById("accountsEmpty");
+    const accessCreated = document.getElementById("accessCreated");
+    const activityList = document.getElementById("activityList");
+    let expandedId = null;
+    let emailEdits = {};
+    let busy = false;
 
     function showErr(msg) {
       if (!msg) {
@@ -150,29 +135,22 @@
       adminError.classList.remove("hidden");
     }
 
-    function formatDate(iso) {
-      if (!iso) return "—";
-      try {
-        return new Date(iso).toLocaleString();
-      } catch (_err) {
-        return iso;
-      }
+    function setStatus(msg) {
+      adminStatus.textContent = msg || "";
     }
 
-    function formatGameNames(names) {
-      const list = Array.isArray(names) ? names.filter(Boolean) : [];
-      if (!list.length) return "—";
-      return list.join(", ");
+    function formatRemaining(ms) {
+      if (ms == null) return "Starts on login";
+      if (ms <= 0) return "Expired";
+      const mins = Math.floor(ms / 60000);
+      if (mins < 60) return `${mins}m`;
+      const hours = Math.floor(mins / 60);
+      if (hours < 48) return `${hours}h`;
+      return `${Math.floor(hours / 24)}d`;
     }
 
-    function formatMeta(meta) {
-      if (!meta || typeof meta !== "object") return "—";
-      const parts = [];
-      for (const [key, value] of Object.entries(meta)) {
-        if (value == null || value === "") continue;
-        parts.push(`${key}: ${value}`);
-      }
-      return parts.length ? parts.join(" · ") : "—";
+    function formatLocation(a) {
+      return [a.lastCity, a.lastRegion, a.lastCountry].filter(Boolean).join(", ") || "—";
     }
 
     async function requireAdminSession() {
@@ -188,206 +166,227 @@
       return user;
     }
 
-    async function loadSummary() {
-      const data = await BingoAuth.apiFetch("/api/admin/summary");
-      const cards = [
-        ["Registered users", data.registeredUsers],
-        ["Mobile players", data.mobilePlayers],
-        ["Account games started", data.accountGamesHosted],
-        ["Mobile game sessions", data.mobileGameSessions],
-        ["Active demo codes", data.accessCodes?.demo ?? 0],
-        ["Active weekly codes", data.accessCodes?.weekly ?? 0],
-        ["Active real codes", data.accessCodes?.real ?? 0]
-      ];
-      adminSummary.innerHTML = cards
-        .map(
-          ([label, value]) =>
-            `<div class="admin-summary-card"><span class="admin-summary-label">${escapeHtml(label)}</span><span class="admin-summary-value">${escapeHtml(String(value ?? 0))}</span></div>`
-        )
-        .join("");
-    }
-
-    async function loadUsers() {
-      const data = await BingoAuth.apiFetch("/api/admin/users");
-      usersTableBody.innerHTML = "";
-      for (const user of data.users || []) {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td>${escapeHtml(user.email)}</td>
-          <td>${escapeHtml(user.role)}</td>
-          <td>${escapeHtml(String(user.gamesPlayed || 0))}</td>
-          <td class="admin-cell-wrap">${escapeHtml(formatGameNames(user.gameNames))}</td>
-          <td>${escapeHtml(formatDate(user.createdAt))}</td>
-        `;
-        usersTableBody.appendChild(tr);
-      }
-      if (!data.users?.length) {
-        usersTableBody.innerHTML = '<tr><td colspan="5" class="admin-empty">No registered users yet.</td></tr>';
-      }
-    }
-
-    function formatCodeLastUsage(code) {
-      const row = Array.isArray(code.usageLogs) ? code.usageLogs[0] : null;
-      if (!row) return "—";
-      return `${formatDate(row.at)} (${row.playerCount} players)`;
-    }
-
-    async function loadAccessCodes() {
-      const data = await BingoAuth.apiFetch("/api/admin/access-codes");
-      const codes = Array.isArray(data.codes) ? data.codes : [];
-      codesTableBody.innerHTML = "";
-      for (const code of codes) {
-        const tr = document.createElement("tr");
-        const usage = code.unlimitedUses ? `${code.usesCount || 0} / Unlimited` : `${code.usesCount || 0} / ${code.usesLimit || 0}`;
-        const status = code.disabled ? "Disabled" : code.expired ? "Expired" : "Active";
-        const disabledBtn = code.disabled
-          ? `<span class="admin-empty">Replaced</span>`
-          : `<button class="ghost-btn" data-disable-code="${escapeHtml(code.id)}">Disable & regenerate</button>`;
-        const forceBtn = code.disabled
-          ? ""
-          : `<button class="ghost-btn" data-force-logout-code="${escapeHtml(code.id)}">Force logout</button>`;
-        tr.innerHTML = `
-          <td>${escapeHtml(code.tier || "—")}</td>
-          <td>${escapeHtml(code.username || "—")}</td>
-          <td>${escapeHtml(code.password || "—")}</td>
-          <td>${escapeHtml(usage)}</td>
-          <td>${escapeHtml(formatDate(code.expiresAt))}</td>
-          <td class="admin-cell-wrap">${escapeHtml(formatCodeLastUsage(code))}</td>
-          <td>${escapeHtml(status)}</td>
-          <td>${disabledBtn} ${forceBtn}</td>
-        `;
-        codesTableBody.appendChild(tr);
-      }
-      if (!codes.length) {
-        codesTableBody.innerHTML = '<tr><td colspan="8" class="admin-empty">No access codes found.</td></tr>';
-      }
-    }
-
-    async function loadMobilePlayers() {
-      const data = await BingoAuth.apiFetch("/api/admin/mobile-players");
-      mobileTableBody.innerHTML = "";
-      for (const player of data.players || []) {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td>${escapeHtml(player.displayName)}</td>
-          <td>${escapeHtml(player.countryCode || "—")}</td>
-          <td>${escapeHtml(String(player.gamesPlayed || 0))}</td>
-          <td class="admin-cell-wrap">${escapeHtml(formatGameNames(player.gameNames))}</td>
-          <td>${escapeHtml(formatDate(player.lastPlayedAt))}</td>
-        `;
-        mobileTableBody.appendChild(tr);
-      }
-      if (!data.players?.length) {
-        mobileTableBody.innerHTML = '<tr><td colspan="5" class="admin-empty">No mobile players recorded yet.</td></tr>';
-      }
-    }
-
-    async function loadActivity({ append } = {}) {
-      const data = await BingoAuth.apiFetch(
-        `/api/admin/activity?limit=80&offset=${activityOffset}`
-      );
-      if (!append) {
-        activityTableBody.innerHTML = "";
-      }
-      for (const row of data.items || []) {
-        const tr = document.createElement("tr");
-        tr.innerHTML = `
-          <td>${escapeHtml(formatDate(row.at))}</td>
-          <td>${escapeHtml(row.email || "—")}</td>
-          <td>${escapeHtml(row.type)}</td>
-          <td class="admin-cell-wrap">${escapeHtml(formatMeta(row.meta))}</td>
-        `;
-        activityTableBody.appendChild(tr);
-      }
-      if (!append && !data.items?.length) {
-        activityTableBody.innerHTML = '<tr><td colspan="4" class="admin-empty">No activity yet.</td></tr>';
-      }
-      activityOffset += (data.items || []).length;
-    }
-
-    async function refreshAll() {
+    async function refresh() {
       showErr("");
-      await Promise.all([loadSummary(), loadUsers(), loadMobilePlayers(), loadAccessCodes()]);
-      activityOffset = 0;
-      await loadActivity({ append: false });
+      const [sum, acc] = await Promise.all([
+        BingoAuth.apiFetch("/api/admin/access/summary"),
+        BingoAuth.apiFetch("/api/admin/access/accounts")
+      ]);
+
+      const cards = [
+        [sum.total, "Accounts"],
+        [sum.activeSessions, "Live sessions"],
+        [sum.byStatus?.active || 0, "Active"],
+        [sum.byPlan?.demo || 0, "Demo"],
+        [sum.byPlan?.day || 0, "Day"],
+        [sum.byPlan?.days3 || 0, "3 days"],
+        [sum.byPlan?.week || 0, "Week"],
+        [sum.byPlan?.month || 0, "Month"]
+      ];
+      accessSummary.innerHTML = cards
+        .map(([n, label]) => `<div><strong>${escapeHtml(String(n))}</strong><span>${escapeHtml(label)}</span></div>`)
+        .join("");
+
+      const accounts = acc.accounts || [];
+      accountsEmpty.classList.toggle("hidden", accounts.length > 0);
+      accountsBody.innerHTML = "";
+      for (const a of accounts) {
+        if (a.guest) continue;
+        const tr = document.createElement("tr");
+        tr.className = `access-row status-${a.status}`;
+        const actionBtns = a.disabled
+          ? `<button type="button" class="admin-btn admin-btn-secondary admin-btn-sm" data-action="enable" data-id="${escapeHtml(a.id)}">Enable</button>`
+          : `<button type="button" class="admin-btn admin-btn-danger admin-btn-sm" data-action="disable" data-id="${escapeHtml(a.id)}">Disable</button>`;
+        tr.innerHTML = `
+          <td>
+            <button type="button" class="access-linkish" data-expand="${escapeHtml(a.id)}">${escapeHtml(a.email || a.username)}</button>
+            ${a.note ? `<div class="access-note">${escapeHtml(a.note)}</div>` : ""}
+            ${!a.email ? `<div class="access-note">Upgrade code (username + password)</div>` : ""}
+          </td>
+          <td><code>${escapeHtml(a.password || "")}</code></td>
+          <td>${escapeHtml(a.planLabel || a.plan)}</td>
+          <td><span class="access-pill ${escapeHtml(a.status)}">${escapeHtml(a.statusLabel || a.status)}</span></td>
+          <td>${escapeHtml(formatRemaining(a.msRemaining))}</td>
+          <td title="${escapeHtml(a.lastIp || "")}">${escapeHtml(formatLocation(a))}</td>
+          <td>${escapeHtml(String(a.loginCount || 0))}</td>
+          <td class="access-actions">
+            ${actionBtns}
+            <button type="button" class="admin-btn admin-btn-secondary admin-btn-sm" data-action="logout" data-id="${escapeHtml(a.id)}">Kick</button>
+            <button type="button" class="admin-btn admin-btn-secondary admin-btn-sm" data-action="regenerate" data-id="${escapeHtml(a.id)}">New pass</button>
+          </td>
+        `;
+        accountsBody.appendChild(tr);
+
+        if (expandedId === a.id) {
+          const detail = document.createElement("tr");
+          detail.className = "access-logs-row";
+          const logs = (a.usageLogs || [])
+            .map((log) => {
+              const place = [log.city, log.region, log.country].filter(Boolean).join(", ") || "Unknown";
+              return `<li>${escapeHtml(new Date(log.at).toLocaleString())} — ${escapeHtml(place)} (${escapeHtml(log.ip || "no ip")})</li>`;
+            })
+            .join("");
+          detail.innerHTML = `
+            <td colspan="8">
+              <div class="access-logs">
+                <div class="access-email-edit">
+                  <label>
+                    Login email
+                    <input type="email" data-email-id="${escapeHtml(a.id)}" value="${escapeHtml(emailEdits[a.id] ?? a.email ?? "")}" placeholder="customer@email.com">
+                  </label>
+                  <button type="button" class="admin-btn admin-btn-primary admin-btn-sm" data-save-email="${escapeHtml(a.id)}">Save email</button>
+                </div>
+                <div>Created: ${escapeHtml(new Date(a.createdAt).toLocaleString())}</div>
+                <div>Expires: ${a.expiresAt ? escapeHtml(new Date(a.expiresAt).toLocaleString()) : "Starts on first login"}</div>
+                <div>Last login: ${a.lastLoginAt ? escapeHtml(new Date(a.lastLoginAt).toLocaleString()) : "—"}</div>
+                <div>Username: ${escapeHtml(a.username)}</div>
+                <div>Spins / players: ${escapeHtml(String(a.rounds || "—"))} / ${escapeHtml(String(a.maxPlayers || "—"))}</div>
+                <h4>Recent logins</h4>
+                ${logs ? `<ul>${logs}</ul>` : "<p>No logins yet.</p>"}
+              </div>
+            </td>
+          `;
+          accountsBody.appendChild(detail);
+        }
+      }
+
+      const activity = sum.recentActivity || [];
+      activityList.innerHTML = activity
+        .slice(0, 25)
+        .map(
+          (item) => `
+          <li>
+            <span>${item.at ? escapeHtml(new Date(item.at).toLocaleString()) : ""}</span>
+            <strong>${escapeHtml(String(item.type || ""))}</strong>
+            <span>${escapeHtml(String(item.username || ""))}</span>
+            <span>${escapeHtml([item.city, item.country].filter(Boolean).join(", "))}</span>
+          </li>`
+        )
+        .join("") || "<li><span>No activity yet</span></li>";
     }
 
-    document.getElementById("reloadUsersBtn")?.addEventListener("click", () => loadUsers().catch((e) => showErr(e.message)));
-    document.getElementById("reloadMobileBtn")?.addEventListener("click", () => loadMobilePlayers().catch((e) => showErr(e.message)));
-    document.getElementById("reloadCodesBtn")?.addEventListener("click", () => loadAccessCodes().catch((e) => showErr(e.message)));
-    document.getElementById("createWeeklyCodesBtn")?.addEventListener("click", async (ev) => {
-      const btn = ev.currentTarget;
-      btn.disabled = true;
+    document.getElementById("genBtn").addEventListener("click", async () => {
+      if (busy) return;
+      busy = true;
+      setStatus("Creating accounts…");
       try {
-        const data = await BingoAuth.apiFetch("/api/admin/access-codes/weekly", { method: "POST" });
-        await Promise.all([loadAccessCodes(), loadSummary()]);
-        alert(`Weekly codes ready. Created ${data.created?.length || 0} new code(s).`);
+        const data = await BingoAuth.apiFetch("/api/admin/access/accounts", {
+          method: "POST",
+          body: JSON.stringify({
+            plan: document.getElementById("genPlan").value,
+            count: Number(document.getElementById("genCount").value) || 1,
+            email: document.getElementById("genEmail").value.trim(),
+            note: document.getElementById("genNote").value.trim()
+          })
+        });
+        const created = data.accounts || [];
+        setStatus(`Created ${created.length} account(s)`);
+        document.getElementById("genEmail").value = "";
+        accessCreated.classList.remove("hidden");
+        accessCreated.innerHTML = `
+          <h3>Just created — send username &amp; password to customer</h3>
+          ${created
+            .map(
+              (a) => `
+            <div class="access-created-row">
+              <code>${escapeHtml(a.username)}</code>
+              <code>${escapeHtml(a.password)}</code>
+              <span>${escapeHtml(a.planLabel)}${a.email ? ` · ${escapeHtml(a.email)}` : ""}</span>
+              <button type="button" class="admin-btn admin-btn-secondary admin-btn-sm" data-copy="Plan username: ${escapeHtml(a.username)}\\nPlan password: ${escapeHtml(a.password)}\\nPlan: ${escapeHtml(a.planLabel)}">Copy</button>
+            </div>`
+            )
+            .join("")}
+        `;
+        await refresh();
       } catch (err) {
-        showErr(err.message || "Could not create weekly codes.");
+        showErr(err.message || "Create failed");
+        setStatus("");
       } finally {
-        btn.disabled = false;
+        busy = false;
       }
     });
-    document.getElementById("reloadActivityBtn")?.addEventListener("click", () => {
-      activityOffset = 0;
-      loadActivity({ append: false }).catch((e) => showErr(e.message));
-    });
-    document.getElementById("moreActivityBtn")?.addEventListener("click", () => {
-      loadActivity({ append: true }).catch((e) => showErr(e.message));
-    });
-    document.getElementById("adminSignOutBtn")?.addEventListener("click", async () => {
-      await BingoAuth.logout();
-      window.location.href = "/account";
+
+    document.getElementById("refreshAccountsBtn").addEventListener("click", () => {
+      refresh().catch((e) => showErr(e.message));
     });
 
-    codesTableBody?.addEventListener("click", async (ev) => {
-      const btn = ev.target.closest("[data-disable-code]");
-      if (btn) {
-        const id = btn.getAttribute("data-disable-code");
-        if (!id) return;
-        btn.disabled = true;
+    accessCreated.addEventListener("click", (ev) => {
+      const btn = ev.target.closest("[data-copy]");
+      if (!btn) return;
+      const text = btn.getAttribute("data-copy").replace(/\\n/g, "\n");
+      navigator.clipboard?.writeText(text).then(() => setStatus("Copied")).catch(() => {});
+    });
+
+    accountsBody.addEventListener("click", async (ev) => {
+      const expand = ev.target.closest("[data-expand]");
+      if (expand) {
+        const id = expand.getAttribute("data-expand");
+        expandedId = expandedId === id ? null : id;
+        await refresh();
+        return;
+      }
+
+      const saveEmail = ev.target.closest("[data-save-email]");
+      if (saveEmail) {
+        const id = saveEmail.getAttribute("data-save-email");
+        const input = accountsBody.querySelector(`[data-email-id="${id}"]`);
         try {
-          await BingoAuth.apiFetch(`/api/admin/access-codes/${encodeURIComponent(id)}/disable-regenerate`, {
-            method: "POST"
+          await BingoAuth.apiFetch(`/api/admin/access/accounts/${encodeURIComponent(id)}/email`, {
+            method: "POST",
+            body: JSON.stringify({ email: input?.value || "" })
           });
-          await Promise.all([loadAccessCodes(), loadSummary()]);
+          setStatus("Email saved");
+          await refresh();
         } catch (err) {
-          showErr(err.message || "Could not disable code.");
-        } finally {
-          btn.disabled = false;
+          showErr(err.message || "Email update failed");
         }
         return;
       }
 
-      const forceBtn = ev.target.closest("[data-force-logout-code]");
-      if (forceBtn) {
-        const id = forceBtn.getAttribute("data-force-logout-code");
-        if (!id) return;
-        forceBtn.disabled = true;
-        try {
-          const data = await BingoAuth.apiFetch(`/api/admin/access-codes/${encodeURIComponent(id)}/force-logout`, {
-            method: "POST"
-          });
-          showErr("");
-          if ((data?.clearedSessions || 0) > 0) {
-            alert(`Forced logout successful. Cleared ${data.clearedSessions} active session(s).`);
-          } else {
-            alert("Force logout completed. No active sessions were using this code.");
-          }
-        } catch (err) {
-          showErr(err.message || "Could not force logout code.");
-        } finally {
-          forceBtn.disabled = false;
-        }
+      const actionBtn = ev.target.closest("[data-action]");
+      if (!actionBtn || busy) return;
+      const id = actionBtn.getAttribute("data-id");
+      const action = actionBtn.getAttribute("data-action");
+      busy = true;
+      try {
+        await BingoAuth.apiFetch(`/api/admin/access/accounts/${encodeURIComponent(id)}/${action}`, {
+          method: "POST",
+          body: JSON.stringify({})
+        });
+        setStatus(
+          action === "regenerate"
+            ? "New credentials created"
+            : action === "logout"
+              ? "Sessions ended"
+              : action === "disable"
+                ? "Account disabled"
+                : "Account enabled"
+        );
+        await refresh();
+      } catch (err) {
+        showErr(err.message || "Action failed");
+      } finally {
+        busy = false;
       }
+    });
+
+    accountsBody.addEventListener("input", (ev) => {
+      const input = ev.target.closest("[data-email-id]");
+      if (!input) return;
+      emailEdits[input.getAttribute("data-email-id")] = input.value;
+    });
+
+    document.getElementById("adminSignOutBtn").addEventListener("click", async () => {
+      await BingoAuth.logout();
+      window.location.href = "/account";
     });
 
     requireAdminSession()
       .then((user) => {
         if (!user) return;
-        refreshAll().catch((err) => showErr(err.message || "Could not load admin data."));
+        return refresh();
       })
-      .catch((err) => showErr(err.message || "Could not verify session."));
+      .catch((err) => showErr(err.message || "Could not load admin."));
   </script>
 </body>
 </html>

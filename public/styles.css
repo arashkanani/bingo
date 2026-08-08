@@ -114,6 +114,34 @@ body {
   text-transform: uppercase;
 }
 
+.upgrade-btn {
+  padding: 0.65rem 1rem;
+  font-size: 0.9rem;
+}
+
+.upgrade-sheet .account-form {
+  margin-top: 0.5rem;
+}
+
+.upgrade-account-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  margin-top: 1.15rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.upgrade-link-btn {
+  flex: 1 1 10rem;
+  text-align: center;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.7rem 1rem;
+}
+
 .card {
   background: var(--bg-card);
   border: 1px solid var(--line);
@@ -2164,3 +2192,87 @@ html[data-circle-size="venue"] {
 
 .event-eyebrow { margin: 0; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--gold); }
 
+
+/* ——— Aqvarium-style Users & plans admin ——— */
+.admin-accounts { display: grid; gap: 1.15rem; width: 100%; }
+.admin-accounts-panel h2 { margin: 0 0 0.5rem; font-size: 1.15rem; color: var(--gold); }
+.admin-desc { margin: 0 0 1rem; color: var(--muted); font-size: 0.92rem; line-height: 1.45; }
+.admin-status { min-height: 1.25rem; color: var(--gold-bright); font-size: 0.9rem; margin: 0 0 0.75rem; }
+.access-hosting-note {
+  margin: 0 0 1rem; padding: 0.85rem 1rem; border-radius: 14px;
+  background: rgba(240, 193, 77, 0.1); border: 1px solid var(--line); font-size: 0.88rem; line-height: 1.45;
+}
+.access-hosting-note h3 { margin: 0 0 0.4rem; font-size: 0.95rem; color: var(--gold); }
+.access-hosting-note ul { margin: 0.4rem 0 0; padding-left: 1.15rem; color: var(--muted); }
+.access-summary-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  gap: 0.65rem; margin: 0 0 1.1rem;
+}
+.access-summary-grid div {
+  background: rgba(0, 0, 0, 0.28); border: 1px solid var(--line); border-radius: 12px;
+  padding: 0.75rem 0.55rem; text-align: center;
+}
+.access-summary-grid strong { display: block; font-size: 1.35rem; color: var(--gold-bright); }
+.access-summary-grid span { font-size: 0.75rem; color: var(--muted); }
+.access-generate {
+  display: grid; grid-template-columns: 150px 90px 1fr auto; gap: 0.65rem; align-items: end;
+}
+.access-generate label { display: grid; gap: 0.35rem; font-size: 0.82rem; font-weight: 600; color: var(--muted); }
+.access-generate input, .access-generate select {
+  width: 100%; padding: 0.65rem 0.75rem; border-radius: 10px; border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.35); color: var(--cream); font-family: var(--font); font-size: 0.95rem;
+}
+.access-created {
+  margin-top: 1rem; padding: 0.85rem 1rem; border-radius: 14px;
+  background: rgba(240, 193, 77, 0.12); border: 1px solid rgba(240, 193, 77, 0.35);
+}
+.access-created h3 { margin: 0 0 0.65rem; font-size: 0.95rem; color: var(--gold); }
+.access-created-row { display: flex; flex-wrap: wrap; gap: 0.65rem; align-items: center; margin-bottom: 0.5rem; }
+.access-created-row code {
+  background: rgba(0, 0, 0, 0.35); padding: 0.3rem 0.55rem; border-radius: 8px; color: var(--gold-bright);
+}
+.access-table-head { display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; margin-bottom: 0.65rem; }
+.access-table-wrap { overflow-x: auto; }
+.access-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+.access-table th, .access-table td {
+  text-align: left; padding: 0.65rem 0.5rem; border-bottom: 1px solid var(--line); vertical-align: top;
+}
+.access-table th { color: var(--muted); font-weight: 600; }
+.access-note { margin-top: 0.25rem; font-size: 0.75rem; color: var(--muted); }
+.access-linkish {
+  background: none; border: none; color: var(--gold-bright); font: inherit; font-weight: 700;
+  cursor: pointer; padding: 0; text-align: left;
+}
+.access-pill {
+  display: inline-block; padding: 0.2rem 0.5rem; border-radius: 999px; font-size: 0.75rem; font-weight: 700;
+  background: rgba(255, 255, 255, 0.08);
+}
+.access-pill.active, .access-pill.ready { background: rgba(61, 214, 140, 0.22); color: var(--ok); }
+.access-pill.expired { background: rgba(255, 170, 60, 0.22); }
+.access-pill.disabled { background: rgba(232, 69, 90, 0.22); }
+.access-actions { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.access-logs { padding: 0.5rem 0.25rem 0.75rem; font-size: 0.82rem; }
+.access-email-edit { display: flex; flex-wrap: wrap; gap: 0.65rem; align-items: end; margin-bottom: 0.65rem; }
+.access-email-edit label { display: grid; gap: 0.3rem; flex: 1; min-width: 220px; font-size: 0.85rem; font-weight: 600; color: var(--muted); }
+.access-email-edit input {
+  padding: 0.55rem 0.7rem; border-radius: 8px; border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.35); color: var(--cream); font-family: var(--font);
+}
+.admin-btn {
+  font-family: var(--font); font-weight: 700; border: none; cursor: pointer; border-radius: 10px;
+  padding: 0.65rem 1rem; background: linear-gradient(135deg, var(--gold), #d4a017); color: #1a0c08;
+}
+.admin-btn-secondary { background: transparent; color: var(--cream); border: 1px solid var(--line); }
+.admin-btn-danger { background: linear-gradient(135deg, var(--crimson-soft), var(--crimson)); color: #fff; }
+.admin-btn-sm { padding: 0.4rem 0.7rem; font-size: 0.8rem; }
+.admin-btn-primary { }
+.access-activity { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; }
+.access-activity li {
+  display: grid; grid-template-columns: 160px 140px 140px 1fr; gap: 0.5rem; font-size: 0.82rem;
+  padding: 0.55rem 0.7rem; border-radius: 10px; background: rgba(0, 0, 0, 0.22); border: 1px solid var(--line);
+}
+@media (max-width: 900px) {
+  .access-generate { grid-template-columns: 1fr 1fr; }
+  .access-note-field, .access-generate button { grid-column: 1 / -1; }
+  .access-activity li { grid-template-columns: 1fr; }
+}

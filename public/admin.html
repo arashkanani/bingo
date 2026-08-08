@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin · Bingo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="account-body admin-body">
+  <div class="bg-mesh" aria-hidden="true"></div>
+  <div class="bg-vignette" aria-hidden="true"></div>
+
+  <div class="admin-page-wrap">
+    <header class="admin-page-head">
+      <div>
+        <p class="event-eyebrow">Bingo</p>
+        <h1 class="admin-page-title">Admin dashboard</h1>
+        <p class="admin-page-sub">Registered accounts and mobile players. Counts update when the host starts a game.</p>
+      </div>
+      <div class="admin-page-links">
+        <a href="/">Host</a>
+        <a href="/account">Account</a>
+        <button type="button" class="host-account-linkish" id="adminSignOutBtn">Sign out</button>
+      </div>
+    </header>
+
+    <div id="adminError" class="account-alert err hidden" role="alert"></div>
+
+    <div id="adminSummary" class="admin-summary-grid" aria-live="polite"></div>
+
+    <div class="admin-panels">
+      <section class="admin-panel card admin-panel-wide">
+        <div class="admin-panel-head">
+          <h2>Access codes (Demo / Weekly / Real)</h2>
+          <div class="admin-panel-actions">
+            <button type="button" class="ghost-btn" id="createWeeklyCodesBtn">Create 5 weekly codes</button>
+            <button type="button" class="ghost-btn" id="reloadCodesBtn">Refresh</button>
+          </div>
+        </div>
+        <p class="admin-panel-hint">Weekly codes are valid for 7 days and have unlimited game launches. Disable any code to immediately generate a fresh replacement of the same tier.</p>
+        <div class="admin-table-wrap">
+          <table class="admin-table admin-table-compact">
+            <thead>
+              <tr>
+                <th>Tier</th>
+                <th>Username</th>
+                <th>Password</th>
+                <th>Usage</th>
+                <th>Expires</th>
+                <th>Last usage</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="codesTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="admin-panel card">
+        <div class="admin-panel-head">
+          <h2>Registered users</h2>
+          <button type="button" class="ghost-btn" id="reloadUsersBtn">Refresh</button>
+        </div>
+        <p class="admin-panel-hint">Hosts who signed in with email or Google. Game names are event titles when they started a game while signed in.</p>
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Role</th>
+                <th>Times played</th>
+                <th>Game names</th>
+                <th>Joined</th>
+              </tr>
+            </thead>
+            <tbody id="usersTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="admin-panel card">
+        <div class="admin-panel-head">
+          <h2>Mobile players</h2>
+          <button type="button" class="ghost-btn" id="reloadMobileBtn">Refresh</button>
+        </div>
+        <p class="admin-panel-hint">Players on phones (no account). Name from registration; counted each time they were in a lobby when the host started a game.</p>
+        <div class="admin-table-wrap">
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Player name</th>
+                <th>Country</th>
+                <th>Times played</th>
+                <th>Game names</th>
+                <th>Last played</th>
+              </tr>
+            </thead>
+            <tbody id="mobileTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="admin-panel card admin-panel-wide">
+        <div class="admin-panel-head">
+          <h2>Recent activity</h2>
+          <div class="admin-panel-actions">
+            <button type="button" class="ghost-btn" id="reloadActivityBtn">Refresh</button>
+            <button type="button" class="ghost-btn" id="moreActivityBtn">Load more</button>
+          </div>
+        </div>
+        <div class="admin-table-wrap">
+          <table class="admin-table admin-table-compact">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>User</th>
+                <th>Action</th>
+                <th>Details</th>
+              </tr>
+            </thead>
+            <tbody id="activityTableBody"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script src="/auth-client.js"></script>
+  <script src="/player-ui.js"></script>
+  <script>
+    const adminError = document.getElementById("adminError");
+    const adminSummary = document.getElementById("adminSummary");
+    const usersTableBody = document.getElementById("usersTableBody");
+    const mobileTableBody = document.getElementById("mobileTableBody");
+    const activityTableBody = document.getElementById("activityTableBody");
+    const codesTableBody = document.getElementById("codesTableBody");
+    let activityOffset = 0;
+
+    function showErr(msg) {
+      if (!msg) {
+        adminError.classList.add("hidden");
+        adminError.textContent = "";
+        return;
+      }
+      adminError.textContent = msg;
+      adminError.classList.remove("hidden");
+    }
+
+    function formatDate(iso) {
+      if (!iso) return "—";
+      try {
+        return new Date(iso).toLocaleString();
+      } catch (_err) {
+        return iso;
+      }
+    }
+
+    function formatGameNames(names) {
+      const list = Array.isArray(names) ? names.filter(Boolean) : [];
+      if (!list.length) return "—";
+      return list.join(", ");
+    }
+
+    function formatMeta(meta) {
+      if (!meta || typeof meta !== "object") return "—";
+      const parts = [];
+      for (const [key, value] of Object.entries(meta)) {
+        if (value == null || value === "") continue;
+        parts.push(`${key}: ${value}`);
+      }
+      return parts.length ? parts.join(" · ") : "—";
+    }
+
+    async function requireAdminSession() {
+      const user = await BingoAuth.getSession();
+      if (!user) {
+        window.location.href = "/account?next=" + encodeURIComponent("/admin");
+        return null;
+      }
+      if (user.role !== "admin") {
+        showErr("Admin access only. Add your email to ADMIN_EMAILS on the server.");
+        return null;
+      }
+      return user;
+    }
+
+    async function loadSummary() {
+      const data = await BingoAuth.apiFetch("/api/admin/summary");
+      const cards = [
+        ["Registered users", data.registeredUsers],
+        ["Mobile players", data.mobilePlayers],
+        ["Account games started", data.accountGamesHosted],
+        ["Mobile game sessions", data.mobileGameSessions],
+        ["Active demo codes", data.accessCodes?.demo ?? 0],
+        ["Active weekly codes", data.accessCodes?.weekly ?? 0],
+        ["Active real codes", data.accessCodes?.real ?? 0]
+      ];
+      adminSummary.innerHTML = cards
+        .map(
+          ([label, value]) =>
+            `<div class="admin-summary-card"><span class="admin-summary-label">${escapeHtml(label)}</span><span class="admin-summary-value">${escapeHtml(String(value ?? 0))}</span></div>`
+        )
+        .join("");
+    }
+
+    async function loadUsers() {
+      const data = await BingoAuth.apiFetch("/api/admin/users");
+      usersTableBody.innerHTML = "";
+      for (const user of data.users || []) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${escapeHtml(user.email)}</td>
+          <td>${escapeHtml(user.role)}</td>
+          <td>${escapeHtml(String(user.gamesPlayed || 0))}</td>
+          <td class="admin-cell-wrap">${escapeHtml(formatGameNames(user.gameNames))}</td>
+          <td>${escapeHtml(formatDate(user.createdAt))}</td>
+        `;
+        usersTableBody.appendChild(tr);
+      }
+      if (!data.users?.length) {
+        usersTableBody.innerHTML = '<tr><td colspan="5" class="admin-empty">No registered users yet.</td></tr>';
+      }
+    }
+
+    function formatCodeLastUsage(code) {
+      const row = Array.isArray(code.usageLogs) ? code.usageLogs[0] : null;
+      if (!row) return "—";
+      return `${formatDate(row.at)} (${row.playerCount} players)`;
+    }
+
+    async function loadAccessCodes() {
+      const data = await BingoAuth.apiFetch("/api/admin/access-codes");
+      const codes = Array.isArray(data.codes) ? data.codes : [];
+      codesTableBody.innerHTML = "";
+      for (const code of codes) {
+        const tr = document.createElement("tr");
+        const usage = code.unlimitedUses ? `${code.usesCount || 0} / Unlimited` : `${code.usesCount || 0} / ${code.usesLimit || 0}`;
+        const status = code.disabled ? "Disabled" : code.expired ? "Expired" : "Active";
+        const disabledBtn = code.disabled
+          ? `<span class="admin-empty">Replaced</span>`
+          : `<button class="ghost-btn" data-disable-code="${escapeHtml(code.id)}">Disable & regenerate</button>`;
+        const forceBtn = code.disabled
+          ? ""
+          : `<button class="ghost-btn" data-force-logout-code="${escapeHtml(code.id)}">Force logout</button>`;
+        tr.innerHTML = `
+          <td>${escapeHtml(code.tier || "—")}</td>
+          <td>${escapeHtml(code.username || "—")}</td>
+          <td>${escapeHtml(code.password || "—")}</td>
+          <td>${escapeHtml(usage)}</td>
+          <td>${escapeHtml(formatDate(code.expiresAt))}</td>
+          <td class="admin-cell-wrap">${escapeHtml(formatCodeLastUsage(code))}</td>
+          <td>${escapeHtml(status)}</td>
+          <td>${disabledBtn} ${forceBtn}</td>
+        `;
+        codesTableBody.appendChild(tr);
+      }
+      if (!codes.length) {
+        codesTableBody.innerHTML = '<tr><td colspan="8" class="admin-empty">No access codes found.</td></tr>';
+      }
+    }
+
+    async function loadMobilePlayers() {
+      const data = await BingoAuth.apiFetch("/api/admin/mobile-players");
+      mobileTableBody.innerHTML = "";
+      for (const player of data.players || []) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${escapeHtml(player.displayName)}</td>
+          <td>${escapeHtml(player.countryCode || "—")}</td>
+          <td>${escapeHtml(String(player.gamesPlayed || 0))}</td>
+          <td class="admin-cell-wrap">${escapeHtml(formatGameNames(player.gameNames))}</td>
+          <td>${escapeHtml(formatDate(player.lastPlayedAt))}</td>
+        `;
+        mobileTableBody.appendChild(tr);
+      }
+      if (!data.players?.length) {
+        mobileTableBody.innerHTML = '<tr><td colspan="5" class="admin-empty">No mobile players recorded yet.</td></tr>';
+      }
+    }
+
+    async function loadActivity({ append } = {}) {
+      const data = await BingoAuth.apiFetch(
+        `/api/admin/activity?limit=80&offset=${activityOffset}`
+      );
+      if (!append) {
+        activityTableBody.innerHTML = "";
+      }
+      for (const row of data.items || []) {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>${escapeHtml(formatDate(row.at))}</td>
+          <td>${escapeHtml(row.email || "—")}</td>
+          <td>${escapeHtml(row.type)}</td>
+          <td class="admin-cell-wrap">${escapeHtml(formatMeta(row.meta))}</td>
+        `;
+        activityTableBody.appendChild(tr);
+      }
+      if (!append && !data.items?.length) {
+        activityTableBody.innerHTML = '<tr><td colspan="4" class="admin-empty">No activity yet.</td></tr>';
+      }
+      activityOffset += (data.items || []).length;
+    }
+
+    async function refreshAll() {
+      showErr("");
+      await Promise.all([loadSummary(), loadUsers(), loadMobilePlayers(), loadAccessCodes()]);
+      activityOffset = 0;
+      await loadActivity({ append: false });
+    }
+
+    document.getElementById("reloadUsersBtn")?.addEventListener("click", () => loadUsers().catch((e) => showErr(e.message)));
+    document.getElementById("reloadMobileBtn")?.addEventListener("click", () => loadMobilePlayers().catch((e) => showErr(e.message)));
+    document.getElementById("reloadCodesBtn")?.addEventListener("click", () => loadAccessCodes().catch((e) => showErr(e.message)));
+    document.getElementById("createWeeklyCodesBtn")?.addEventListener("click", async (ev) => {
+      const btn = ev.currentTarget;
+      btn.disabled = true;
+      try {
+        const data = await BingoAuth.apiFetch("/api/admin/access-codes/weekly", { method: "POST" });
+        await Promise.all([loadAccessCodes(), loadSummary()]);
+        alert(`Weekly codes ready. Created ${data.created?.length || 0} new code(s).`);
+      } catch (err) {
+        showErr(err.message || "Could not create weekly codes.");
+      } finally {
+        btn.disabled = false;
+      }
+    });
+    document.getElementById("reloadActivityBtn")?.addEventListener("click", () => {
+      activityOffset = 0;
+      loadActivity({ append: false }).catch((e) => showErr(e.message));
+    });
+    document.getElementById("moreActivityBtn")?.addEventListener("click", () => {
+      loadActivity({ append: true }).catch((e) => showErr(e.message));
+    });
+    document.getElementById("adminSignOutBtn")?.addEventListener("click", async () => {
+      await BingoAuth.logout();
+      window.location.href = "/account";
+    });
+
+    codesTableBody?.addEventListener("click", async (ev) => {
+      const btn = ev.target.closest("[data-disable-code]");
+      if (btn) {
+        const id = btn.getAttribute("data-disable-code");
+        if (!id) return;
+        btn.disabled = true;
+        try {
+          await BingoAuth.apiFetch(`/api/admin/access-codes/${encodeURIComponent(id)}/disable-regenerate`, {
+            method: "POST"
+          });
+          await Promise.all([loadAccessCodes(), loadSummary()]);
+        } catch (err) {
+          showErr(err.message || "Could not disable code.");
+        } finally {
+          btn.disabled = false;
+        }
+        return;
+      }
+
+      const forceBtn = ev.target.closest("[data-force-logout-code]");
+      if (forceBtn) {
+        const id = forceBtn.getAttribute("data-force-logout-code");
+        if (!id) return;
+        forceBtn.disabled = true;
+        try {
+          const data = await BingoAuth.apiFetch(`/api/admin/access-codes/${encodeURIComponent(id)}/force-logout`, {
+            method: "POST"
+          });
+          showErr("");
+          if ((data?.clearedSessions || 0) > 0) {
+            alert(`Forced logout successful. Cleared ${data.clearedSessions} active session(s).`);
+          } else {
+            alert("Force logout completed. No active sessions were using this code.");
+          }
+        } catch (err) {
+          showErr(err.message || "Could not force logout code.");
+        } finally {
+          forceBtn.disabled = false;
+        }
+      }
+    });
+
+    requireAdminSession()
+      .then((user) => {
+        if (!user) return;
+        refreshAll().catch((err) => showErr(err.message || "Could not load admin data."));
+      })
+      .catch((err) => showErr(err.message || "Could not verify session."));
+  </script>
+</body>
+</html>

@@ -1,3 +1,5 @@
+require("dotenv").config();
+
 const path = require("path");
 const fs = require("fs");
 const os = require("os");
@@ -5,6 +7,7 @@ const http = require("http");
 const crypto = require("crypto");
 const express = require("express");
 const compression = require("compression");
+const cookieParser = require("cookie-parser");
 const QRCode = require("qrcode");
 const { Server } = require("socket.io");
 const {
@@ -20,6 +23,10 @@ const {
   MIN_CARD_COLS,
   MAX_CARD_COLS
 } = require("./lib/config");
+const authLib = require("./lib/auth");
+const userStore = require("./lib/user-store");
+const googleAuth = require("./lib/google-auth");
+const { attachSocketAuthMiddleware } = require("./lib/socket-auth");
 
 const app = express();
 const server = http.createServer(app);
@@ -28,8 +35,39 @@ const io = new Server(server, {
   cors: { origin: false }
 });
 
+attachSocketAuthMiddleware(io);
+
+const DEMO_SUSPEND_MESSAGE =
+  "Demo access is temporarily paused while a real game is running. Please try again later.";
+
+function appendAudit({ userId, email, req, type, meta }) {
+  userStore.appendActivity({
+    userId: userId ?? req?.user?.id ?? null,
+    email: email ? userStore.normalizeEmail(email) : req?.user?.email ?? null,
+    type: String(type || "unknown"),
+    meta: meta && typeof meta === "object" ? meta : {}
+  });
+}
+
+function accessCookieOptions() {
+  return {
+    httpOnly: true,
+    secure: IS_PRODUCTION,
+    sameSite: "lax",
+    maxAge: userStore.ACCESS_SESSION_TTL_MS,
+    path: "/"
+  };
+}
+
 app.use(compression());
 app.use(express.json({ limit: "300kb" }));
+app.use(cookieParser());
+app.use(authLib.attachUserMiddleware());
+app.use((req, _res, next) => {
+  const token = req.cookies?.[userStore.ACCESS_COOKIE_NAME];
+  req.dashboardAccess = userStore.getAccessSession(token) || null;
+  next();
+});
 
 const publicDir = path.join(__dirname, "public");
 app.use(express.static(publicDir));
@@ -236,6 +274,23 @@ function createNewGame(settings = {}) {
 const players = new Map();
 const socketToPlayerId = new Map();
 let game = createNewGame();
+let dashboardCodeId = null;
+let activeGameCodeId = null;
+
+function currentDashboardCode() {
+  return userStore.getCodeById(activeGameCodeId || dashboardCodeId);
+}
+
+function isRealGameRunning() {
+  const code = userStore.getCodeById(activeGameCodeId);
+  return Boolean(game.started && !game.ended && code?.tier === "real");
+}
+
+function effectiveMaxPlayers() {
+  const code = currentDashboardCode();
+  if (!code?.maxPlayers) return MAX_PLAYERS;
+  return Math.min(MAX_PLAYERS, Number(code.maxPlayers) || MAX_PLAYERS);
+}
 
 function getPublicBaseUrl(req) {
   if (PUBLIC_URL) return PUBLIC_URL;
@@ -332,7 +387,7 @@ function buildGameStatePayload() {
     })(),
     playerCount: players.size,
     registrationOpen,
-    playerCap: MAX_PLAYERS,
+    playerCap: effectiveMaxPlayers(),
     eventTitle: game.eventTitle || "",
     settings: {
       cardRows: game.cardRows,
@@ -378,6 +433,7 @@ function finishGame(reason) {
   game.ended = true;
   game.autoDraw = false;
   clearAutoDraw();
+  activeGameCodeId = null;
   const leaderboard = getLeaderboard({ includePhoto: true });
   io.emit("gameOver", { leaderboard, reason: reason || "ended" });
   emitGameState();
@@ -467,12 +523,242 @@ function startGame({
   setTimeout(() => drawNextNumber(), 1800);
 }
 
-app.get("/", (_req, res) => {
+app.get("/dashboard-access", (_req, res) => {
+  res.sendFile(path.join(publicDir, "dashboard-access.html"));
+});
+
+app.get("/account", (_req, res) => {
+  res.sendFile(path.join(publicDir, "account.html"));
+});
+
+app.get("/admin", (_req, res) => {
+  res.sendFile(path.join(publicDir, "admin.html"));
+});
+
+app.get("/", (req, res) => {
+  if (!req.dashboardAccess) {
+    res.redirect("/dashboard-access?next=/");
+    return;
+  }
   res.sendFile(path.join(publicDir, "host.html"));
 });
 
 app.get("/mobile", (_req, res) => {
   res.sendFile(path.join(publicDir, "mobile.html"));
+});
+
+app.get("/api/auth/config", (_req, res) => {
+  res.json({ googleClientId: googleAuth.getGoogleClientId() });
+});
+
+app.post("/api/auth/register", async (req, res) => {
+  try {
+    const email = userStore.normalizeEmail(req.body?.email);
+    const password = String(req.body?.password || "");
+    if (!email) {
+      res.status(400).json({ error: "Email is required." });
+      return;
+    }
+    if (password.length < 8) {
+      res.status(400).json({ error: "Password must be at least 8 characters." });
+      return;
+    }
+    const passwordHash = await authLib.hashPassword(password);
+    const user = userStore.createUser({ email, passwordHash });
+    appendAudit({ userId: user.id, email: user.email, type: "auth.register", meta: {} });
+    const publicUser = authLib.setAuthSession(res, user);
+    res.status(201).json({ user: publicUser });
+  } catch (error) {
+    res.status(400).json({ error: error.message || "Could not register." });
+  }
+});
+
+app.post("/api/auth/login", async (req, res) => {
+  try {
+    const email = userStore.normalizeEmail(req.body?.email);
+    const password = String(req.body?.password || "");
+    const user = userStore.findUserByEmail(email);
+    if (!user?.passwordHash) {
+      res.status(401).json({ error: "Incorrect email or password." });
+      return;
+    }
+    const okPass = await authLib.verifyPassword(password, user.passwordHash);
+    if (!okPass) {
+      res.status(401).json({ error: "Incorrect email or password." });
+      return;
+    }
+    appendAudit({ userId: user.id, email: user.email, type: "auth.login", meta: {} });
+    const publicUser = authLib.setAuthSession(res, user);
+    res.json({ user: publicUser });
+  } catch (error) {
+    res.status(400).json({ error: error.message || "Could not sign in." });
+  }
+});
+
+app.post("/api/auth/google", async (req, res) => {
+  try {
+    const profile = await googleAuth.verifyGoogleIdToken(req.body?.credential);
+    const user = userStore.findOrCreateGoogleUser({
+      googleId: profile.googleId,
+      email: profile.email
+    });
+    appendAudit({ userId: user.id, email: user.email, type: "auth.login_google", meta: {} });
+    const publicUser = authLib.setAuthSession(res, user);
+    res.json({ user: publicUser });
+  } catch (error) {
+    const status = /not configured/i.test(error.message) ? 503 : 400;
+    res.status(status).json({ error: error.message || "Google sign-in failed." });
+  }
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  appendAudit({ req, type: "auth.logout", meta: {} });
+  authLib.clearAuthCookie(res);
+  res.json({ ok: true });
+});
+
+app.get("/api/auth/me", (req, res) => {
+  res.json({ user: req.user || null });
+});
+
+app.get("/api/access/debug-hint", (_req, res) => {
+  res.json(userStore.getDebugAccessHint() || { debug: false });
+});
+
+app.get("/api/access/me", (req, res) => {
+  if (!req.dashboardAccess?.code) {
+    res.json({ access: null, realGameRunning: isRealGameRunning() });
+    return;
+  }
+  res.json({
+    access: req.dashboardAccess.code,
+    realGameRunning: isRealGameRunning()
+  });
+});
+
+app.post("/api/access/login", (req, res) => {
+  const username = String(req.body?.username || "").trim();
+  const password = String(req.body?.password || "").trim();
+  const code = userStore.findAccessCodeByCredentials(username, password);
+  if (!code || code.disabled) {
+    res.status(401).json({ error: "Invalid username or password." });
+    return;
+  }
+  if (code.tier === "demo" && isRealGameRunning()) {
+    res.status(403).json({ error: DEMO_SUSPEND_MESSAGE, reason: "demo_suspended" });
+    return;
+  }
+  if (userStore.isAccessCodeExpired(code)) {
+    res.status(403).json({ error: "This access code has expired.", reason: "expired" });
+    return;
+  }
+  if (!userStore.hasAccessCodeUsesRemaining(code)) {
+    res.status(403).json({
+      error: "This access code has reached its maximum number of game launches.",
+      reason: "uses_exhausted"
+    });
+    return;
+  }
+  const session = userStore.createAccessSession(code.id);
+  if (!session) {
+    res.status(400).json({ error: "Could not create dashboard session." });
+    return;
+  }
+  dashboardCodeId = code.id;
+  res.cookie(userStore.ACCESS_COOKIE_NAME, session.token, accessCookieOptions());
+  res.json({ access: session.code });
+});
+
+app.post("/api/access/logout", (req, res) => {
+  const token = req.cookies?.[userStore.ACCESS_COOKIE_NAME];
+  userStore.clearAccessSession(token);
+  res.clearCookie(userStore.ACCESS_COOKIE_NAME, {
+    path: "/",
+    secure: IS_PRODUCTION,
+    sameSite: "lax"
+  });
+  res.json({ ok: true });
+});
+
+app.get("/api/admin/summary", authLib.requireAdmin, (_req, res) => {
+  res.json(userStore.getAdminSummary());
+});
+
+app.get("/api/admin/users", authLib.requireAdmin, (_req, res) => {
+  res.json({ users: userStore.listUsersPublic() });
+});
+
+app.get("/api/admin/mobile-players", authLib.requireAdmin, (_req, res) => {
+  res.json({ players: userStore.listMobilePlayersAdmin() });
+});
+
+app.get("/api/admin/activity", authLib.requireAdmin, (req, res) => {
+  const limit = Number(req.query.limit) || 100;
+  const offset = Number(req.query.offset) || 0;
+  res.json(userStore.listActivity({ limit, offset }));
+});
+
+app.get("/api/admin/access-codes", authLib.requireAdmin, (_req, res) => {
+  res.json({ codes: userStore.listAccessCodes(), realGameRunning: isRealGameRunning() });
+});
+
+app.post("/api/admin/access-codes/weekly", authLib.requireAdmin, (req, res) => {
+  try {
+    const result = userStore.ensureWeeklyAccessCodes(5);
+    appendAudit({
+      req,
+      type: "access.weekly_ensure",
+      meta: { created: result.created.length, activeWeekly: result.weeklyCodes.length }
+    });
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: error.message || "Could not create weekly codes." });
+  }
+});
+
+app.post("/api/admin/access-codes/:id/disable-regenerate", authLib.requireAdmin, (req, res) => {
+  try {
+    const result = userStore.disableAndRegenerateAccessCode(req.params.id, "disabled_by_admin");
+    const clearedSessions = userStore.clearAccessSessionsByCodeId(req.params.id);
+    if (dashboardCodeId === req.params.id) dashboardCodeId = null;
+    if (activeGameCodeId === req.params.id) {
+      activeGameCodeId = null;
+      if (game.started && !game.ended) finishGame("admin");
+    }
+    appendAudit({
+      req,
+      type: "access.disable_regenerate",
+      meta: {
+        disabledUsername: result.disabled.username,
+        replacementUsername: result.replacement.username,
+        tier: result.disabled.tier,
+        clearedSessions
+      }
+    });
+    res.json({ ...result, clearedSessions });
+  } catch (error) {
+    res.status(400).json({ error: error.message || "Could not disable code." });
+  }
+});
+
+app.post("/api/admin/access-codes/:id/force-logout", authLib.requireAdmin, (req, res) => {
+  try {
+    const code = userStore.getCodeById(req.params.id);
+    if (!code) {
+      res.status(404).json({ error: "Access code not found." });
+      return;
+    }
+    const clearedSessions = userStore.clearAccessSessionsByCodeId(req.params.id);
+    if (dashboardCodeId === req.params.id) dashboardCodeId = null;
+    appendAudit({
+      req,
+      type: "access.force_logout",
+      meta: { username: code.username, tier: code.tier, clearedSessions }
+    });
+    res.json({ ok: true, clearedSessions });
+  } catch (error) {
+    res.status(400).json({ error: error.message || "Could not force logout." });
+  }
 });
 
 app.get("/api/countries", (_req, res) => {
@@ -597,9 +883,10 @@ io.on("connection", (socket) => {
       return;
     }
 
-    if (players.size >= MAX_PLAYERS) {
+    const cap = effectiveMaxPlayers();
+    if (players.size >= cap) {
       socket.emit("joinError", {
-        message: `Game is full (${MAX_PLAYERS} players max).`
+        message: `Game is full (${cap} players max).`
       });
       return;
     }
@@ -733,21 +1020,70 @@ io.on("connection", (socket) => {
   });
 
   socket.on("hostStartGame", (payload) => {
+    const accessCode = socket.data.accessSession?.code || currentDashboardCode();
+    if (!accessCode) {
+      socket.emit("hostError", {
+        message: "Dashboard access required. Sign in with your plan username and password."
+      });
+      return;
+    }
+    if (accessCode.disabled) {
+      socket.emit("hostError", { message: "This access code is disabled. Contact admin for a new code." });
+      return;
+    }
+    if (accessCode.tier === "demo" && isRealGameRunning()) {
+      socket.emit("hostError", { message: DEMO_SUSPEND_MESSAGE });
+      return;
+    }
+    if (userStore.isAccessCodeExpired(accessCode)) {
+      socket.emit("hostError", { message: "This access code has expired." });
+      return;
+    }
+    if (!userStore.hasAccessCodeUsesRemaining(accessCode)) {
+      socket.emit("hostError", { message: "This access code has no launches remaining." });
+      return;
+    }
     if (players.size < 1) {
       socket.emit("hostError", { message: "Need at least one player to start." });
+      return;
+    }
+    if (players.size > accessCode.maxPlayers) {
+      socket.emit("hostError", {
+        message: `This ${accessCode.tier} code allows up to ${accessCode.maxPlayers} players. Current lobby has ${players.size}.`
+      });
       return;
     }
     if (game.started && !game.ended) {
       socket.emit("hostError", { message: "Game already in progress." });
       return;
     }
+
+    dashboardCodeId = accessCode.id;
+    activeGameCodeId = accessCode.id;
+    const eventTitle =
+      normalizeEventTitle(payload?.eventTitle) || game.eventTitle || "Bingo";
+    userStore.consumeAccessCodeUse(accessCode.id, {
+      playerCount: players.size,
+      eventTitle
+    });
+    const authUser = socket.data.authUser || null;
+    userStore.recordGameStarted({
+      hostUserId: authUser?.id || null,
+      hostEmail: authUser?.email || null,
+      eventTitle,
+      players: [...players.values()].map((player) => ({
+        name: player.name,
+        countryCode: player.countryCode
+      }))
+    });
+
     startGame({
       autoDraw: !!payload?.autoDraw,
       autoDrawMs: payload?.autoDrawMs,
       cardRows: payload?.cardRows,
       cardCols: payload?.cardCols,
       winRows: payload?.winRows,
-      eventTitle: payload?.eventTitle
+      eventTitle
     });
   });
 
@@ -826,4 +1162,31 @@ server.listen(PORT, "0.0.0.0", () => {
       ? `Bingo phone join (QR): http://${lan}:${PORT}/mobile`
       : `Bingo mobile join: http://localhost:${PORT}/mobile`
   );
+  console.log(`Plan access login: http://localhost:${PORT}/dashboard-access`);
+  console.log(`Admin account: http://localhost:${PORT}/account → /admin`);
+  console.log(`Local debug plan code: username 123 / password 123`);
+
+  const bootstrapEmail = process.env.ADMIN_BOOTSTRAP_EMAIL;
+  const bootstrapPassword = process.env.ADMIN_BOOTSTRAP_PASSWORD;
+  const bootstrapReset = String(process.env.ADMIN_BOOTSTRAP_RESET || "").toLowerCase() === "true";
+  if (bootstrapEmail && bootstrapPassword) {
+    userStore
+      .bootstrapAdminAccount({
+        email: bootstrapEmail,
+        password: bootstrapPassword,
+        authLib,
+        forceReset: bootstrapReset
+      })
+      .then((result) => {
+        const email = userStore.normalizeEmail(bootstrapEmail);
+        if (result.created) console.log(`Admin bootstrap OK: created ${email}`);
+        else if (result.reset) console.log(`Admin bootstrap OK: password reset for ${email}`);
+        else if (result.reason === "exists") {
+          console.log(`Admin bootstrap: ${email} already exists`);
+        } else if (result.reason === "not_admin_email") {
+          console.warn(`Admin bootstrap skipped: ${email} not in ADMIN_EMAILS`);
+        }
+      })
+      .catch((err) => console.warn("Admin bootstrap failed:", err.message));
+  }
 });

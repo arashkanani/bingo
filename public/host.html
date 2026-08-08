@@ -18,6 +18,7 @@
     <header class="host-header">
       <div class="host-header-left">
         <p class="brand-sub" id="headerSub">1. Scan QR → 2. Register → 3. Start</p>
+        <p class="host-access-badge" id="hostAccessBadge">Plan: —</p>
       </div>
       <h1 class="brand" id="brandTitle">BINGO</h1>
       <div class="host-toolbar">
@@ -1084,6 +1085,28 @@
     socket.on("hostError", ({ message }) => {
       alert(message || "Host action failed.");
     });
+
+    const hostAccessBadge = document.getElementById("hostAccessBadge");
+    async function refreshAccessBadge() {
+      try {
+        const res = await fetch("/api/access/me", { credentials: "include" });
+        const data = await res.json();
+        if (!hostAccessBadge) return;
+        if (!data?.access) {
+          hostAccessBadge.textContent = "Plan: locked";
+          return;
+        }
+        const a = data.access;
+        const uses =
+          a.unlimitedUses
+            ? "unlimited launches"
+            : `${a.usesRemaining ?? 0} launches left`;
+        hostAccessBadge.textContent = `${String(a.tier || "plan").toUpperCase()} · ${uses}`;
+      } catch (_err) {
+        if (hostAccessBadge) hostAccessBadge.textContent = "Plan: —";
+      }
+    }
+    refreshAccessBadge();
   </script>
 </body>
 </html>

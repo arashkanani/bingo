@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sign in · Bingo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="account-body">
+  <div class="bg-mesh" aria-hidden="true"></div>
+  <div class="bg-vignette" aria-hidden="true"></div>
+  <div class="bg-orb orb-1" aria-hidden="true"></div>
+  <div class="bg-orb orb-2" aria-hidden="true"></div>
+  <div class="bg-orb orb-3" aria-hidden="true"></div>
+  <div class="bg-sparkle" aria-hidden="true"></div>
+
+  <div class="account-page-wrap">
+    <div class="account-card card">
+      <p class="event-eyebrow">Bingo</p>
+      <h1 class="account-title">Sign in to your account</h1>
+      <p class="account-note">Use Google or email for your host account. <strong>Developers / admins:</strong> after sign-in go to <a href="/admin">Admin dashboard</a> (not the host access-code page).</p>
+
+      <div id="googleSignInSection" class="account-google-section hidden">
+        <div id="googleBtnMount" class="account-google-mount"></div>
+      </div>
+      <p id="accountDivider" class="account-divider hidden" aria-hidden="true"><span>or use email</span></p>
+
+      <div class="account-tabs" role="tablist">
+        <button type="button" class="tab is-active" data-panel="login" role="tab">Sign in</button>
+        <button type="button" class="tab" data-panel="register" role="tab">Create account</button>
+      </div>
+
+      <div id="formError" class="account-alert err hidden" role="alert"></div>
+      <div id="formOk" class="account-alert ok hidden" role="status"></div>
+
+      <form id="loginForm" class="account-form" autocomplete="on">
+        <label for="loginEmail">Email</label>
+        <input id="loginEmail" name="email" type="email" required autocomplete="username" inputmode="email" placeholder="you@company.com">
+
+        <label for="loginPassword">Password</label>
+        <input id="loginPassword" name="password" type="password" required autocomplete="current-password" minlength="8" placeholder="Your password">
+
+        <button type="submit" class="submit-btn" id="loginBtn">Sign in with email</button>
+      </form>
+
+      <form id="registerForm" class="account-form hidden" autocomplete="on">
+        <label for="regEmail">Email</label>
+        <input id="regEmail" name="email" type="email" required autocomplete="username" inputmode="email" placeholder="you@company.com">
+
+        <label for="regPassword">Password</label>
+        <input id="regPassword" name="password" type="password" required autocomplete="new-password" minlength="8" placeholder="At least 8 characters">
+
+        <button type="submit" class="submit-btn" id="registerBtn">Create account with email</button>
+      </form>
+
+      <div class="account-footer">
+        <a href="/admin">Admin dashboard</a>
+        <span aria-hidden="true"> · </span>
+        <a href="/dashboard-access">Host access code login</a>
+      </div>
+    </div>
+  </div>
+  <script src="/auth-client.js"></script>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const nextParam = params.get("next");
+
+    function resolveRedirect(user, fallbackNext) {
+      const safeNext = BingoAuth.safeNextUrl(fallbackNext);
+      if (user?.role === "admin" && (!nextParam || safeNext === "/")) {
+        return "/admin";
+      }
+      return safeNext;
+    }
+
+    const formError = document.getElementById("formError");
+    const formOk = document.getElementById("formOk");
+    const loginForm = document.getElementById("loginForm");
+    const registerForm = document.getElementById("registerForm");
+    const loginBtn = document.getElementById("loginBtn");
+    const registerBtn = document.getElementById("registerBtn");
+    const accountTitle = document.querySelector(".account-title");
+    const googleSignInSection = document.getElementById("googleSignInSection");
+    const accountDivider = document.getElementById("accountDivider");
+    const googleBtnMount = document.getElementById("googleBtnMount");
+
+    function showErr(msg) {
+      if (!msg) {
+        formError.classList.add("hidden");
+        formError.textContent = "";
+        return;
+      }
+      formOk.classList.add("hidden");
+      formError.textContent = msg;
+      formError.classList.remove("hidden");
+    }
+
+    function showOk(msg) {
+      if (!msg) {
+        formOk.classList.add("hidden");
+        formOk.textContent = "";
+        return;
+      }
+      formError.classList.add("hidden");
+      formOk.textContent = msg;
+      formOk.classList.remove("hidden");
+    }
+
+    function setPanel(panel) {
+      document.querySelectorAll(".account-tabs .tab").forEach((b) => {
+        b.classList.toggle("is-active", b.getAttribute("data-panel") === panel);
+      });
+      loginForm.classList.toggle("hidden", panel !== "login");
+      registerForm.classList.toggle("hidden", panel !== "register");
+      if (accountTitle) {
+        accountTitle.textContent = panel === "register" ? "Create your account" : "Sign in to your account";
+      }
+      showErr("");
+      showOk("");
+    }
+
+    document.querySelectorAll(".account-tabs .tab").forEach((btn) => {
+      btn.addEventListener("click", () => setPanel(btn.getAttribute("data-panel")));
+    });
+
+    if (params.get("tab") === "register") {
+      setPanel("register");
+    }
+
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        if (document.querySelector(`script[src="${src}"]`)) {
+          resolve();
+          return;
+        }
+        const script = document.createElement("script");
+        script.src = src;
+        script.async = true;
+        script.onload = () => resolve();
+        script.onerror = () => reject(new Error("Could not load Google sign-in."));
+        document.head.appendChild(script);
+      });
+    }
+
+    async function initGoogleSignIn() {
+      let cfg;
+      try {
+        cfg = await BingoAuth.getAuthConfig();
+      } catch (_err) {
+        return;
+      }
+      if (!cfg.googleClientId) return;
+
+      googleSignInSection.classList.remove("hidden");
+      accountDivider.classList.remove("hidden");
+      accountDivider.setAttribute("aria-hidden", "false");
+
+      await loadScript("https://accounts.google.com/gsi/client");
+
+      function handleGoogleCredential(response) {
+        showErr("");
+        showOk("");
+        const credential = response?.credential;
+        if (!credential) {
+          showErr("Google sign-in was cancelled.");
+          return;
+        }
+        BingoAuth.loginWithGoogle(credential)
+          .then((data) => {
+            const dest = resolveRedirect(data?.user, nextParam);
+            showOk(`Signed in — opening ${dest === "/admin" ? "admin dashboard" : "next page"}…`);
+            window.location.href = dest;
+          })
+          .catch((err) => {
+            showErr(err.message || "Google sign-in failed.");
+          });
+      }
+
+      globalThis.google.accounts.id.initialize({
+        client_id: cfg.googleClientId,
+        callback: handleGoogleCredential
+      });
+      globalThis.google.accounts.id.renderButton(googleBtnMount, {
+        type: "standard",
+        theme: "filled_black",
+        size: "large",
+        text: "continue_with",
+        shape: "rectangular",
+        width: Math.min(360, googleBtnMount.offsetWidth || 360)
+      });
+    }
+
+    loginForm.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      showErr("");
+      showOk("");
+      const emailCheck = BingoAuth.validateEmail(loginForm.email.value);
+      if (!emailCheck.ok) {
+        showErr(emailCheck.message);
+        return;
+      }
+      const passCheck = BingoAuth.validatePassword(loginForm.password.value);
+      if (!passCheck.ok) {
+        showErr(passCheck.message);
+        return;
+      }
+      loginBtn.disabled = true;
+      loginBtn.textContent = "Signing in…";
+      try {
+        const data = await BingoAuth.login(emailCheck.email, passCheck.password);
+        const dest = resolveRedirect(data?.user, nextParam);
+        showOk(`Signed in — opening ${dest === "/admin" ? "admin dashboard" : "next page"}…`);
+        window.location.href = dest;
+      } catch (err) {
+        showErr(err.message || "Could not sign in.");
+      } finally {
+        loginBtn.disabled = false;
+        loginBtn.textContent = "Sign in with email";
+      }
+    });
+
+    registerForm.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      showErr("");
+      showOk("");
+      const emailCheck = BingoAuth.validateEmail(registerForm.email.value);
+      if (!emailCheck.ok) {
+        showErr(emailCheck.message);
+        return;
+      }
+      const passCheck = BingoAuth.validatePassword(registerForm.password.value);
+      if (!passCheck.ok) {
+        showErr(passCheck.message);
+        return;
+      }
+      registerBtn.disabled = true;
+      registerBtn.textContent = "Creating account…";
+      try {
+        const data = await BingoAuth.register(emailCheck.email, passCheck.password);
+        const dest = resolveRedirect(data?.user, nextParam);
+        showOk(`Account created — opening ${dest === "/admin" ? "admin dashboard" : "next page"}…`);
+        window.location.href = dest;
+      } catch (err) {
+        showErr(err.message || "Could not register.");
+      } finally {
+        registerBtn.disabled = false;
+        registerBtn.textContent = "Create account with email";
+      }
+    });
+
+    BingoAuth.getSession()
+      .then((user) => {
+        if (user) {
+          const dest = resolveRedirect(user, nextParam);
+          showOk(`Already signed in as ${user.email}. Opening ${dest === "/admin" ? "admin dashboard" : "next page"}…`);
+          window.setTimeout(() => {
+            window.location.href = dest;
+          }, 600);
+        }
+      })
+      .catch(() => {});
+
+    initGoogleSignIn().catch(() => {});
+  </script>
+</body>
+</html>

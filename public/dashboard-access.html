@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard Access · Bingo</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="account-body">
+  <div class="bg-mesh" aria-hidden="true"></div>
+  <div class="bg-vignette" aria-hidden="true"></div>
+  <div class="account-page-wrap">
+    <div class="account-card card">
+      <p class="event-eyebrow">Bingo</p>
+      <h1 class="account-title">Game Dashboard Access</h1>
+      <p class="account-note">Sign in using the access username and password provided by your admin.</p>
+      <p id="debugHint" class="account-note hidden">Local debug: use username <strong>123</strong> and password <strong>123</strong>.</p>
+      <div id="formError" class="account-alert err hidden" role="alert"></div>
+      <div id="formOk" class="account-alert ok hidden" role="status"></div>
+      <form id="accessForm" class="account-form" autocomplete="off">
+        <label for="accessUsername">Access username</label>
+        <input id="accessUsername" name="username" type="text" required placeholder="e.g. DEMO-AB12CD">
+
+        <label for="accessPassword">Access password</label>
+        <input id="accessPassword" name="password" type="password" required placeholder="Enter password">
+
+        <button type="submit" class="submit-btn" id="accessBtn">Open dashboard</button>
+      </form>
+      <div class="account-footer">
+        <a href="/account">Admin account sign-in</a>
+      </div>
+    </div>
+  </div>
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const nextUrl = (() => {
+      const raw = String(params.get("next") || "/").trim();
+      if (!raw.startsWith("/") || raw.startsWith("//")) return "/";
+      return raw;
+    })();
+    const form = document.getElementById("accessForm");
+    const btn = document.getElementById("accessBtn");
+    const errEl = document.getElementById("formError");
+    const okEl = document.getElementById("formOk");
+    const debugHintEl = document.getElementById("debugHint");
+    const usernameInput = document.getElementById("accessUsername");
+    const passwordInput = document.getElementById("accessPassword");
+
+    function showErr(msg) {
+      if (!msg) {
+        errEl.classList.add("hidden");
+        errEl.textContent = "";
+        return;
+      }
+      okEl.classList.add("hidden");
+      errEl.textContent = msg;
+      errEl.classList.remove("hidden");
+    }
+
+    function showOk(msg) {
+      if (!msg) {
+        okEl.classList.add("hidden");
+        okEl.textContent = "";
+        return;
+      }
+      errEl.classList.add("hidden");
+      okEl.textContent = msg;
+      okEl.classList.remove("hidden");
+    }
+
+    async function applyDebugHint() {
+      try {
+        const res = await fetch("/api/access/debug-hint");
+        const data = await res.json();
+        if (!data?.username || !data?.password) return;
+        if (debugHintEl) debugHintEl.classList.remove("hidden");
+        if (usernameInput && !usernameInput.value) usernameInput.value = data.username;
+        if (passwordInput && !passwordInput.value) passwordInput.value = data.password;
+      } catch (_error) {
+        // ignore
+      }
+    }
+
+    async function checkExistingSession() {
+      try {
+        const res = await fetch("/api/access/me", { credentials: "include" });
+        const data = await res.json();
+        if (data?.access) {
+          window.location.href = nextUrl;
+        }
+      } catch (_error) {
+        // ignore
+      }
+    }
+
+    form.addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      showErr("");
+      showOk("");
+      const username = String(form.username.value || "").trim();
+      const password = String(form.password.value || "").trim();
+      if (!username || !password) {
+        showErr("Username and password are required.");
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = "Signing in...";
+      try {
+        const res = await fetch("/api/access/login", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          showErr(data.error || "Could not sign in.");
+          return;
+        }
+        showOk("Access granted. Redirecting...");
+        window.location.href = nextUrl;
+      } catch (_error) {
+        showErr("Network error. Please try again.");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Open dashboard";
+      }
+    });
+
+    applyDebugHint();
+    checkExistingSession();
+  </script>
+</body>
+</html>

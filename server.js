@@ -279,8 +279,8 @@ function createNewGame(settings = {}) {
     currentNumber: null,
     currentLetter: null,
     drawSequence: 0,
-    autoDraw: false,
-    autoDrawMs: 12000,
+    autoDraw: true,
+    autoDrawMs: 15000,
     autoDrawTimer: null
   };
 }
@@ -532,8 +532,8 @@ function resetLobby() {
 }
 
 function startGame({
-  autoDraw = false,
-  autoDrawMs,
+  autoDraw = true,
+  autoDrawMs = 15000,
   cardRows,
   cardCols,
   winRows,
@@ -553,7 +553,7 @@ function startGame({
     planTier
   });
   game.started = true;
-  if (autoDrawMs) game.autoDrawMs = Math.max(10000, Number(autoDrawMs) || 10000);
+  game.autoDrawMs = Math.max(10000, Number(autoDrawMs) || 15000);
   game.autoDraw = !!autoDraw;
 
   for (const player of players.values()) {
